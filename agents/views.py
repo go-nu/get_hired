@@ -1,3 +1,4 @@
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db.models import Count, Sum
@@ -9,6 +10,7 @@ from applications.views import PageLinksMixin
 
 from .forms import AgentSettingsForm
 from .models import AgentRun, AgentSettings, Provider
+from .notify import send_discord
 from .pricing import cost_rows
 
 
@@ -52,6 +54,19 @@ class AgentSettingsView(LoginRequiredMixin, SuccessMessageMixin, UpdateView):
 
     def get_object(self, queryset=None):
         return AgentSettings.for_user(self.request.user)
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        # 웹훅 주소를 새로 넣었으면 바로 시험 알림을 보내 연결을 확인한다.
+        if form.cleaned_data["discord_webhook"]:
+            ok, reason = send_discord(
+                form.cleaned_data["discord_webhook"], "취업 활동 관리와 연결되었습니다. 이 채널로 알림을 보냅니다."
+            )
+            if ok:
+                messages.info(self.request, "디스코드로 시험 알림을 보냈습니다.")
+            else:
+                messages.warning(self.request, f"디스코드 시험 알림 실패: {reason}")
+        return response
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

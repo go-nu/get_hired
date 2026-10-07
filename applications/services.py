@@ -5,18 +5,24 @@
 """
 
 import json
+import logging
 import threading
+from datetime import timedelta
 import uuid
 
 from django.db import connection, transaction
+from django.utils import timezone
 from langgraph.types import Command
 
 from agents.models import AgentJob, AgentRun, AgentSettings, Status
+from agents.notify import application_link, notify_user
 from agents.providers import ProviderError
 from agents.services import run_agent
 
 from .analysis_graph import ACCEPT, REVISE, AnalysisContext, open_graph
-from .models import Analysis, Application, Company
+from .models import URGENT_DAYS, Analysis, Application, Company
+
+logger = logging.getLogger(__name__)
 
 # 공고 캡처에서 읽어 채우는 폼 칸
 POSTING_FIELDS = ("main_tasks", "requirements", "preferred")
@@ -217,8 +223,41 @@ def run_analysis_job(job_id, resume=None):
             job.save(update_fields=["status", "revisions", "updated_at"])
         else:
             job.finish(error)
+        notify_job_result(job)
     finally:
         connection.close()
+
+
+def notify_job_result(job):
+    """분석 작업이 멈추거나 끝났을 때 디스코드로 알린다. 알림이 실패해도 작업 결과는 그대로다."""
+    application = Application.objects.select_related("company").get(pk=job.application_id)
+    if job.is_waiting:
+        headline = "[확인 대기] 검수 지적이 남아 에이전트가 답을 기다립니다."
+    elif job.error:
+        headline = f"[분석 실패] {job.error}"
+    elif application.fit_score is not None:
+        headline = (
+            f"[분석 완료] 적합도 {application.fit_score}점"
+            f" ({application.get_fit_grade_display()})"
+        )
+    else:
+        headline = "[분석 완료] 기업 조사를 마쳤습니다."
+    try:
+        notify_user(job.user, f"{headline}\n{application}\n{application_link(application)}")
+    except Exception:  # 알림 때문에 스레드가 죽지 않게 한다
+        logger.exception("디스코드 알림 중 오류")
+
+
+def urgent_applications():
+    """마감 3일 이내인데 아직 지원하지 않은 건. (마감 알림 대상)"""
+    today = timezone.localdate()
+    candidates = (
+        Application.objects.visible()
+        .select_related("company")
+        .filter(deadline__range=(today, today + timedelta(days=URGENT_DAYS)))
+        .order_by("deadline")
+    )
+    return [application for application in candidates if application.is_urgent]
 
 
 def save_manual_analysis(application, data):

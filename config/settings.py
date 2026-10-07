@@ -28,6 +28,9 @@ DEBUG = os.getenv("DEBUG", "False").lower() in ("1", "true", "yes")
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
+# 알림에 넣는 링크의 앞부분. 다른 주소로 접속한다면 .env 에서 바꾼다.
+SITE_URL = os.getenv("SITE_URL", "http://127.0.0.1:8000")
+
 INTERNAL_IPS = ["127.0.0.1"]
 
 

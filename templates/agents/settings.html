@@ -24,6 +24,13 @@
             {% include "applications/_field.html" with field=form.gemini_api_key %}
         </div>
         <p class="text-xs text-gray-500">API 키는 암호화해서 저장하며 화면에 다시 보여 주지 않습니다. 칸을 비워 두면 저장된 키를 그대로 씁니다.</p>
+
+        <h2 class="border-t border-gray-200 pt-4 text-sm font-semibold">디스코드 알림</h2>
+        {% include "applications/_field.html" with field=form.discord_webhook %}
+        {% if form.clear_discord_webhook %}
+        <label class="flex items-center gap-2 text-sm text-gray-700">{{ form.clear_discord_webhook }} {{ form.clear_discord_webhook.label }}</label>
+        {% endif %}
+        <p class="text-xs text-gray-500">디스코드 채널 설정 → 연동 → 웹후크에서 만든 주소를 넣으면, 에이전트 분석이 끝나거나 실패했을 때와 확인을 기다릴 때 알림을 보냅니다. 저장하면 시험 알림이 한 번 갑니다.</p>
         <button type="submit" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">저장</button>
     </form>
 

@@ -1,4 +1,5 @@
 import json
+import urllib.error
 from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -9,6 +10,7 @@ from applications.test_views import LoggedInTestCase
 
 from .crypto import decrypt, encrypt
 from .models import AgentRun, AgentSettings, Provider
+from .notify import notify_user, send_discord
 from .providers import Completion, ProviderError, complete
 from .services import run_agent
 
@@ -74,6 +76,57 @@ class AgentSettingsPageTests(LoggedInTestCase):
         self.assertEqual((claude["total"]["runs"], claude["total"]["input"]), (2, 350))
         self.assertEqual(claude["month"]["output"], 20)
         self.assertEqual(gemini["total"]["runs"], 0)
+
+
+WEBHOOK = "https://discord.com/api/webhooks/123/abc"
+
+
+class DiscordTests(LoggedInTestCase):
+    url = reverse("agents:settings")
+    form_data = {
+        "provider": Provider.CLAUDE,
+        "claude_model": "claude-opus-5-5",
+        "gemini_model": "gemini-3.5-flash-lite",
+    }
+
+    @mock.patch("agents.notify.urllib.request.urlopen")
+    def test_send_posts_json_only_to_discord(self, urlopen):
+        self.assertEqual(send_discord(WEBHOOK, "안녕" * 2000), (True, ""))
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, WEBHOOK)
+        self.assertEqual(len(json.loads(request.data)["content"]), 2000)  # 길이 제한
+        self.assertEqual(request.get_header("User-agent"), "get-hired/1.0")
+        urlopen.reset_mock()
+        ok, reason = send_discord("https://example.com/hook", "안녕")
+        self.assertFalse(ok)
+        urlopen.assert_not_called()
+
+    @mock.patch("agents.notify.urllib.request.urlopen")
+    def test_send_reports_failures_without_raising(self, urlopen):
+        urlopen.side_effect = urllib.error.HTTPError(WEBHOOK, 404, "Not Found", None, None)
+        ok, reason = send_discord(WEBHOOK, "안녕")
+        self.assertEqual((ok, "404" in reason), (False, True))
+        urlopen.side_effect = urllib.error.URLError("down")
+        self.assertFalse(send_discord(WEBHOOK, "안녕")[0])
+
+    @mock.patch("agents.notify.urllib.request.urlopen")
+    def test_settings_page_saves_webhook_encrypted_and_sends_test(self, urlopen):
+        response = self.client.post(self.url, {**self.form_data, "discord_webhook": "http://evil.example/x"})
+        self.assertContains(response, "디스코드 웹훅 주소가 아닙니다")
+        urlopen.assert_not_called()
+        response = self.client.post(self.url, {**self.form_data, "discord_webhook": WEBHOOK}, follow=True)
+        settings = AgentSettings.objects.get(user=self.user)
+        self.assertNotIn("abc", settings.discord_webhook)
+        self.assertEqual(settings.get_discord_webhook(), WEBHOOK)
+        urlopen.assert_called_once()
+        self.assertContains(response, "시험 알림을 보냈습니다")
+        self.assertNotContains(response, WEBHOOK)
+        # 비워서 저장하면 그대로 두고, "알림 끄기"를 체크하면 지운다.
+        self.client.post(self.url, self.form_data)
+        self.assertTrue(notify_user(self.user, "알림"))
+        self.client.post(self.url, {**self.form_data, "clear_discord_webhook": "on"})
+        self.assertFalse(notify_user(self.user, "알림"))
+        self.assertEqual(urlopen.call_count, 2)  # 시험 알림 1 + 알림 1
 
 
 class RunAgentTests(LoggedInTestCase):

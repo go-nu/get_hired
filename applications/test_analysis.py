@@ -2,7 +2,9 @@ from contextlib import contextmanager
 from unittest import mock
 
 from datetime import timedelta
+from io import StringIO
 
+from django.core.management import call_command
 from django.urls import reverse
 from django.utils import timezone
 from langgraph.checkpoint.memory import InMemorySaver
@@ -28,7 +30,13 @@ from .analysis_graph import (
 )
 from .models import Analysis, Application
 from .scoring import grade_for, score_evaluation
-from .services import generate_analysis, resume_analysis, run_analysis_job, start_analysis
+from .services import (
+    generate_analysis,
+    resume_analysis,
+    run_analysis_job,
+    start_analysis,
+    urgent_applications,
+)
 from .test_views import LoggedInTestCase
 
 RESEARCH_ANSWER = "## 사업\n- 결제 서비스\n\n[기업 정보]\n업종: 핀테크\n규모: 스타트업\n"
@@ -351,6 +359,47 @@ class AnalysisJobTests(LoggedInTestCase):
         job.refresh_from_db()
         self.assertEqual((job.status, job.error), (Status.FAILED, "ValueError: boom"))
         self.assertEqual(connection.close.call_count, 4)
+
+    @mock.patch("applications.services.connection")
+    @mock.patch("applications.services.notify_user")
+    @mock.patch("applications.services.generate_analysis")
+    def test_job_result_is_sent_to_discord(self, generate, notify, connection):
+        application = self.make_application("알림기업", fit_score=81, fit_grade="mid_high")
+        for result, expected in (
+            ((None, "", False), "[분석 완료] 적합도 81점 (중상)"),
+            ((None, "한도 초과", False), "[분석 실패] 한도 초과"),
+            ((None, "", True), "[확인 대기]"),
+        ):
+            generate.return_value = result
+            job = AgentJob.objects.create(user=self.user, application=application)
+            run_analysis_job(job.pk)
+            user, content = notify.call_args.args
+            self.assertEqual(user, self.user)
+            self.assertIn(expected, content)
+            self.assertIn("알림기업", content)
+            self.assertIn(f"http://127.0.0.1:8000/applications/{application.pk}/", content)
+        # 알림을 보내다 오류가 나도 작업 결과는 그대로 남는다.
+        notify.side_effect = RuntimeError("boom")
+        generate.return_value = (None, "", False)
+        job = AgentJob.objects.create(user=self.user, application=application)
+        with self.assertLogs("applications.services", level="ERROR"):
+            run_analysis_job(job.pk)
+        job.refresh_from_db()
+        self.assertEqual(job.status, Status.SUCCEEDED)
+
+    @mock.patch("applications.management.commands.send_deadline_alerts.notify_user")
+    def test_deadline_alert_lists_urgent_unapplied_applications(self, notify):
+        today = timezone.localdate()
+        self.make_application("임박기업", deadline=today + timedelta(days=2))
+        self.make_application("여유기업", deadline=today + timedelta(days=10))
+        self.make_application("지원한기업", deadline=today + timedelta(days=1), stage="applied")
+        self.assertEqual([a.company.name for a in urgent_applications()], ["임박기업"])
+        notify.return_value = True
+        call_command("send_deadline_alerts", stdout=StringIO())
+        content = notify.call_args.args[1]
+        self.assertIn("[마감 임박] 아직 지원하지 않은 1건", content)
+        self.assertIn("D-2 · 임박기업", content)
+        self.assertNotIn("여유기업", content)
 
     @mock.patch("applications.services.threading.Thread")
     def test_resume_validates_and_restarts_job(self, thread):

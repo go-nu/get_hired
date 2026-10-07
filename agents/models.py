@@ -42,6 +42,7 @@ class AgentSettings(models.Model):
     )
     claude_api_key = models.TextField("Claude API 키(암호화)", blank=True, editable=False)
     gemini_api_key = models.TextField("Gemini API 키(암호화)", blank=True, editable=False)
+    discord_webhook = models.TextField("디스코드 웹훅 주소(암호화)", blank=True, editable=False)
     updated_at = models.DateTimeField("수정일시", auto_now=True)
 
     class Meta:
@@ -65,6 +66,12 @@ class AgentSettings(models.Model):
 
     def get_api_key(self, provider=None):
         return decrypt(getattr(self, f"{provider or self.provider}_api_key"))
+
+    def set_discord_webhook(self, url):
+        self.discord_webhook = encrypt(url.strip())
+
+    def get_discord_webhook(self):
+        return decrypt(self.discord_webhook)
 
     def masked_api_key(self, provider):
         """화면 표시용. 끝 4자리만 보여 준다."""
