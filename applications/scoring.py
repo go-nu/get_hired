@@ -9,14 +9,16 @@ from .models import Application
 # 판정 → 인정 비율
 VERDICT_RATIOS = {"충족": 1.0, "부분 충족": 0.5, "미충족": 0.0}
 
+# 자격 요건이 기본 점수이고 나머지는 가점이다. 자격 요건을 모두 충족하면 60점(중하)에서
+# 시작해, 가점을 받는 만큼 등급이 오른다. 가점은 우대 사항을 가장 크게 둔다.
 # (판정 목록의 이름, 표시 이름, 배점)
 SECTIONS = (
-    ("requirements", "필수 자격 요건", 50),
-    ("preferred", "우대 사항", 20),
-    ("tasks", "주요 업무와 경험의 관련성", 20),
+    ("requirements", "자격 요건 (기본)", 60),
+    ("preferred", "우대 사항 (가점)", 20),
+    ("tasks", "주요 업무 관련성 (가점)", 15),
 )
-EXTRA_LABEL = "기타"
-EXTRA_MAX = 10
+EXTRA_LABEL = "기타 (가점)"
+EXTRA_MAX = 5
 
 # 이 점수 이상이면 해당 등급. 위에서부터 본다. 60점 미만은 "하".
 GRADE_CUTOFFS = (

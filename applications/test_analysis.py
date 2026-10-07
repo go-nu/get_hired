@@ -29,8 +29,8 @@ from .test_views import LoggedInTestCase
 
 RESEARCH_ANSWER = "## 사업\n- 결제 서비스\n\n[기업 정보]\n업종: 핀테크\n규모: 스타트업\n"
 APPROVE = Review(approved=True, issues=[])
-# 필수 (1 + 0.5) / 2 × 50 = 37.5, 우대 없음(배점 제외), 업무 1 × 20 = 20, 기타 20 → 10으로 자름
-# (37.5 + 20 + 10) / 80 × 100 = 84.4 → 84점, 중상
+# 자격 요건 (1 + 0.5) / 2 × 60 = 45, 우대 없음(배점 제외), 업무 1 × 15 = 15, 기타 20 → 5로 자름
+# (45 + 15 + 5) / 80 × 100 = 81.25 → 81점, 중상
 EVALUATION = Evaluation(
     requirements=[
         Judgement(item="Python 3년", verdict="충족", reason="Python 4년"),
@@ -112,13 +112,13 @@ class AnalysisGraphTests(LoggedInTestCase):
         self.assertEqual(analysis.review_notes, "")
         self.application.refresh_from_db()
         # 점수와 등급은 AI가 아니라 scoring.py 가 판정으로 계산한다.
-        self.assertEqual((self.application.fit_score, self.application.fit_grade), (84, "mid_high"))
+        self.assertEqual((self.application.fit_score, self.application.fit_grade), (81, "mid_high"))
         for expected in (
-            "총점 84점 · 등급 중상 (배점 80점 만점을 100점으로 환산)",
-            "[필수 자격 요건] 37.5 / 50",
+            "총점 81점 · 등급 중상 (배점 80점 만점을 100점으로 환산)",
+            "[자격 요건 (기본)] 45.0 / 60",
             "- 부분 충족 · AWS 운영: 개인 프로젝트 배포",
-            "[우대 사항] 공고에 없음 (배점 제외)",
-            "[기타] 10 / 10: 핀테크 도메인 경험",
+            "[우대 사항 (가점)] 공고에 없음 (배점 제외)",
+            "[기타 (가점)] 5 / 5: 핀테크 도메인 경험",
             "[종합]\n요건 대부분 충족",
         ):
             self.assertIn(expected, analysis.fit_evaluation)
@@ -155,7 +155,7 @@ class AnalysisGraphTests(LoggedInTestCase):
         self.assertIn("요건 대부분 충족", analysis.fit_evaluation)
         self.assertEqual(analysis.motivation_draft, "")
         self.application.refresh_from_db()
-        self.assertEqual(self.application.fit_score, 84)
+        self.assertEqual(self.application.fit_score, 81)
 
     def test_failure_at_first_step_saves_nothing(self):
         analysis, error, _ = self.run_graph(FakeAgents(fail_on=Role.RESEARCH))
@@ -191,9 +191,9 @@ class AnalysisGraphTests(LoggedInTestCase):
     def test_score_uses_all_sections_when_present(self):
         judge = lambda verdict: Judgement(item="항목", verdict=verdict, reason="근거")  # noqa: E731
         evaluation = Evaluation(
-            requirements=[judge("충족"), judge("미충족")],  # 25 / 50
+            requirements=[judge("충족"), judge("미충족")],  # 30 / 60
             preferred=[judge("부분 충족")],  # 10 / 20
-            tasks=[judge("충족"), judge("충족")],  # 20 / 20
+            tasks=[judge("충족"), judge("충족")],  # 15 / 15
             extra_score=-3,  # 0으로 자름
             extra_reason="근거 없음",
             summary="종합",
@@ -201,6 +201,19 @@ class AnalysisGraphTests(LoggedInTestCase):
         score, grade, text = score_evaluation(evaluation)
         self.assertEqual((score, grade), (55, "low"))
         self.assertTrue(text.startswith("총점 55점 · 등급 하\n"))
+
+    def test_meeting_all_requirements_alone_is_the_base_grade(self):
+        judge = lambda verdict: Judgement(item="항목", verdict=verdict, reason="근거")  # noqa: E731
+        evaluation = Evaluation(
+            requirements=[judge("충족")],
+            preferred=[judge("미충족")],
+            tasks=[judge("미충족")],
+            extra_score=0,
+            extra_reason="근거 없음",
+            summary="종합",
+        )
+        score, grade, _ = score_evaluation(evaluation)
+        self.assertEqual((score, grade), (60, "mid_low"))  # 가점 없이 기본 점수만
 
     def test_split_company_info(self):
         self.assertEqual(split_company_info(RESEARCH_ANSWER), ("## 사업\n- 결제 서비스", "핀테크", "startup"))
