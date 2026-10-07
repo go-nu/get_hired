@@ -4,6 +4,9 @@
 # Claude 작업 지침 (로컬 전용)
 CLAUDE.md
 
+# 설계 결정·개선 기록 (지원 서류용, 로컬 전용)
+docs/
+
 # Python
 .venv/
 __pycache__/
