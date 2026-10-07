@@ -10,6 +10,7 @@
                         └─(다시 쓰기)─ 사람 확인 ──(이대로 저장)──▶ 끝
 
 - 각 노드는 agents.llm.ask() 로 AI를 한 번 부르고, 호출마다 AgentRun 기록이 남는다.
+- 노드의 지시문은 코드가 아니라 skill 파일(skills/<이름>/SKILL.md)에 있다.
 - 사람 확인 노드는 interrupt() 로 그래프를 멈춘다. 멈춘 상태는 체크포인터가 DB에 저장하고,
   사용자가 상세 화면에서 답하면 Command(resume=...) 로 그 자리에서 이어 간다.
 - 상태(AnalysisState)는 체크포인트에 저장되므로 글자·숫자만 담는다. 모델 객체는 실행할 때마다
@@ -32,10 +33,19 @@ from pydantic import BaseModel, Field
 
 from agents import llm
 from agents.models import Role
+from agents.skills import load_skill
 
 from . import prompts
 from .models import Application, Company
 from .scoring import EXTRA_MAX, VERDICT_RATIOS, score_evaluation
+
+# 역할마다 쓰는 skill. 지시문과 체크리스트, 쓸 도구가 skill 파일에 적혀 있다.
+SKILL_BY_ROLE = {
+    Role.RESEARCH: "company-research",
+    Role.EVALUATE: "fit-evaluation",
+    Role.WRITE: "motivation-writing",
+    Role.REVIEW: "draft-review",
+}
 
 # 검수에서 지적받았을 때 AI끼리 다시 쓰게 하는 최대 횟수. 넘으면 사람에게 묻는다.
 MAX_REVISIONS = 2
@@ -115,9 +125,28 @@ def _ask(runtime, role, revisions=0, **kwargs):
         context.job.step = role
         context.job.revisions = revisions
         context.job.save(update_fields=["step", "revisions", "updated_at"])
+    skill = load_skill(SKILL_BY_ROLE[role])
     return llm.ask(
-        context.user, role, job=context.job, application=context.application, **kwargs
+        context.user,
+        role,
+        system=skill.render(**skill_values()),
+        web_search="web_search" in skill.tools,
+        job=context.job,
+        application=context.application,
+        **kwargs,
     )
+
+
+def skill_values():
+    """skill 본문의 {이름} 자리에 채울 값. 코드에 정의된 숫자·형식과 어긋나지 않게 한다."""
+    return {
+        "max_searches": llm.MAX_WEB_SEARCHES,
+        "company_info_header": prompts.COMPANY_INFO_HEADER,
+        "unknown": prompts.UNKNOWN,
+        "size_labels": ", ".join(Company.Size.labels),
+        "extra_max": EXTRA_MAX,
+        "extra_default": EXTRA_MAX // 2,
+    }
 
 
 def split_company_info(text):
@@ -168,12 +197,10 @@ def research(state: AnalysisState, runtime: Runtime[AnalysisContext]):
     answer = _ask(
         runtime,
         Role.RESEARCH,
-        system=prompts.RESEARCH_SYSTEM.format(max_searches=llm.MAX_WEB_SEARCHES),
         text=prompts.build_prompt(
             prompts.company_block(application.company),
             prompts.posting_block(application),
         ),
-        web_search=True,
     )
     company_analysis, industry, size = split_company_info(answer)
     return {"company_analysis": company_analysis, "industry": industry, "size": size}
@@ -183,7 +210,6 @@ def evaluate(state: AnalysisState, runtime: Runtime[AnalysisContext]):
     result = _ask(
         runtime,
         Role.EVALUATE,
-        system=prompts.EVALUATE_SYSTEM,
         text=prompts.build_prompt(*_shared_blocks(state, runtime.context)),
         schema=Evaluation,
     )
@@ -210,7 +236,6 @@ def write(state: AnalysisState, runtime: Runtime[AnalysisContext]):
         runtime,
         Role.WRITE,
         revisions,
-        system=prompts.WRITE_SYSTEM,
         text=prompts.build_prompt(*blocks),
         schema=Draft,
     )
@@ -228,7 +253,6 @@ def review(state: AnalysisState, runtime: Runtime[AnalysisContext]):
         runtime,
         Role.REVIEW,
         state.get("revisions", 0),
-        system=prompts.REVIEW_SYSTEM,
         text=prompts.build_prompt(
             *_shared_blocks(state, runtime.context),
             _draft_block(state),

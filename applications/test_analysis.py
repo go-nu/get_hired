@@ -12,7 +12,11 @@ from agents.providers import ProviderError
 from profiles.models import GuidelineVersion
 
 from . import prompts
+from agents.skills import list_skills, load_skill
+
 from .analysis_graph import (
+    SKILL_BY_ROLE,
+    skill_values,
     ACCEPT,
     REVISE,
     Draft,
@@ -52,9 +56,13 @@ class FakeAgents:
         self.reviews = list(reviews)  # 순서대로 쓰고, 마지막 것은 계속 쓴다
         self.fail_on = fail_on
         self.calls = []  # (역할, 프롬프트 본문)
+        self.systems = {}  # 역할 → 시스템 지시(skill 본문)
+        self.web_search = {}  # 역할 → 웹 검색 도구를 줬는지
 
     def __call__(self, user, role, *, system, text, **kwargs):
         self.calls.append((role, text))
+        self.systems[role] = system
+        self.web_search[role] = kwargs.get("web_search", False)
         if role == self.fail_on:
             raise ProviderError("한도 초과")
         if role == Role.RESEARCH:
@@ -179,6 +187,28 @@ class AnalysisGraphTests(LoggedInTestCase):
             for marker in ("프로필 본문", "규칙 본문", "기업명: 핀테크사", "결제 서비스", "Python 3년")
         ]
         self.assertEqual(positions, sorted(positions))
+
+    def test_nodes_take_instructions_and_tools_from_skill_files(self):
+        fake = FakeAgents()
+        self.run_graph(fake)
+        self.assertEqual(fake.systems[Role.RESEARCH], load_skill("company-research").render(**skill_values()))
+        self.assertIn("웹 검색은 최대 3번만", fake.systems[Role.RESEARCH])
+        self.assertIn("규모: (스타트업, 중소, 중견, 대기업, 모름 중 하나)", fake.systems[Role.RESEARCH])
+        self.assertIn("0부터 5까지의 정수", fake.systems[Role.EVALUATE])
+        # 웹 검색 도구는 skill 파일에 tools 로 적은 역할에만 준다.
+        self.assertEqual(
+            fake.web_search,
+            {Role.RESEARCH: True, Role.EVALUATE: False, Role.WRITE: False, Role.REVIEW: False},
+        )
+
+    def test_every_skill_file_loads_and_renders(self):
+        skills = list_skills()
+        self.assertEqual(
+            sorted(skill.name for skill in skills), sorted(SKILL_BY_ROLE.values())
+        )
+        for skill in skills:
+            self.assertTrue(skill.description)
+            self.assertNotIn("{", skill.render(**skill_values()))
 
     def test_grade_cutoffs(self):
         grades = {score: grade_for(score) for score in (100, 90, 89, 80, 79, 70, 69, 60, 59, 0)}
