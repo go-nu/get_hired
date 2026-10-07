@@ -1,0 +1,25 @@
+{% if page_obj.paginator.num_pages > 1 %}
+<nav class="flex items-center justify-center gap-1 text-sm" aria-label="페이지">
+    {% if page_obj.has_previous %}
+    <a href="?{% if page_query %}{{ page_query }}&{% endif %}page={{ page_obj.previous_page_number }}" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 hover:bg-gray-50">이전</a>
+    {% else %}
+    <span class="rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-gray-300">이전</span>
+    {% endif %}
+
+    {% for number in page_range %}
+    {% if number == page_obj.number %}
+    <span class="rounded-md bg-indigo-600 px-3 py-1.5 font-medium text-white" aria-current="page">{{ number }}</span>
+    {% elif number == page_obj.paginator.ELLIPSIS %}
+    <span class="px-2 text-gray-400">{{ number }}</span>
+    {% else %}
+    <a href="?{% if page_query %}{{ page_query }}&{% endif %}page={{ number }}" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 hover:bg-gray-50">{{ number }}</a>
+    {% endif %}
+    {% endfor %}
+
+    {% if page_obj.has_next %}
+    <a href="?{% if page_query %}{{ page_query }}&{% endif %}page={{ page_obj.next_page_number }}" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 hover:bg-gray-50">다음</a>
+    {% else %}
+    <span class="rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-gray-300">다음</span>
+    {% endif %}
+</nav>
+{% endif %}

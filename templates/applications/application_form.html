@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block title %}{% if object %}지원 건 수정{% else %}지원 건 등록{% endif %} · 취업 활동 관리{% endblock %}
+
+{% block banner %}{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex items-center gap-3">
+    <h1 class="text-xl font-semibold">{% if object %}지원 건 수정{% else %}지원 건 등록{% endif %}</h1>
+    <div class="ml-auto flex items-center gap-3 text-sm">
+        <button type="submit" form="application-form" class="rounded-md bg-indigo-600 px-4 py-1.5 font-medium text-white hover:bg-indigo-700">저장</button>
+        <a href="{% if object %}{% url 'applications:detail' object.pk %}{% else %}{% url 'home' %}{% endif %}" class="text-gray-600 hover:text-gray-900">취소</a>
+    </div>
+</div>
+
+<form method="post" id="application-form" class="space-y-6"{% if form.is_bound %} data-dirty="1"{% endif %}>
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}
+    <p class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{{ error }}</p>
+    {% endfor %}
+
+    <fieldset class="rounded-lg border border-gray-200 bg-white p-4">
+        <legend class="px-1 text-sm font-semibold">기본 정보</legend>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {% include "applications/_field.html" with field=form.company_name %}
+            {% include "applications/_field.html" with field=form.position %}
+            {% include "applications/_field.html" with field=form.posting_url %}
+            {% include "applications/_field.html" with field=form.source %}
+        </div>
+    </fieldset>
+
+    <fieldset class="rounded-lg border border-gray-200 bg-white p-4">
+        <legend class="px-1 text-sm font-semibold">진행</legend>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-4">
+            {% include "applications/_field.html" with field=form.deadline %}
+            {% include "applications/_field.html" with field=form.applied_at %}
+            {% include "applications/_field.html" with field=form.stage %}
+            {% include "applications/_field.html" with field=form.result %}
+        </div>
+    </fieldset>
+
+    <fieldset class="rounded-lg border border-gray-200 bg-white p-4">
+        <legend class="px-1 text-sm font-semibold">공고 정보</legend>
+        <div class="space-y-4">
+            <div id="posting-ocr" data-url="{% url 'applications:posting_ocr' %}" class="flex flex-wrap items-center gap-3 rounded-md border border-dashed border-gray-300 bg-gray-50 px-3 py-2 text-sm">
+                <span class="text-gray-600">공고 캡처를 넣으면 아래 세 칸을 자동으로 채웁니다.</span>
+                <input type="file" id="posting-ocr-files" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
+                <button type="button" id="posting-ocr-pick" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 hover:bg-gray-50">이미지 선택</button>
+                <span class="text-xs text-gray-500">또는 이 화면에서 Ctrl+V로 붙여넣기 · 최대 5장</span>
+            </div>
+            {% include "applications/_field.html" with field=form.main_tasks %}
+            {% include "applications/_field.html" with field=form.requirements %}
+            {% include "applications/_field.html" with field=form.preferred %}
+        </div>
+    </fieldset>
+
+    <fieldset class="rounded-lg border border-gray-200 bg-white p-4">
+        <legend class="px-1 text-sm font-semibold">평가 기준</legend>
+        {# 적합도 점수·등급은 직접 입력하지 않는다. 에이전트가 이 지침 버전으로 평가해 채운다. #}
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {% include "applications/_field.html" with field=form.guideline_version %}
+        </div>
+    </fieldset>
+
+    <fieldset class="rounded-lg border border-gray-200 bg-white p-4">
+        <legend class="px-1 text-sm font-semibold">메모</legend>
+        {% include "applications/_field.html" with field=form.memo %}
+    </fieldset>
+
+    <div class="flex items-center gap-3">
+        <button type="submit" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">저장</button>
+        <a href="{% if object %}{% url 'applications:detail' object.pk %}{% else %}{% url 'home' %}{% endif %}" class="text-sm text-gray-600 hover:text-gray-900">취소</a>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // 공고 캡처 읽기: 이미지를 고르거나 붙여넣으면 서버가 읽어 온 글로 세 칸을 채운다.
+    (function () {
+        const box = document.getElementById("posting-ocr");
+        const form = document.getElementById("application-form");
+        const input = document.getElementById("posting-ocr-files");
+        if (!box || !form || !input) return;
+        const names = ["main_tasks", "requirements", "preferred"];
+
+        function fill(fields, overwrite) {
+            names.forEach(function (name) {
+                const textarea = form.elements[name];
+                if (fields[name] && (overwrite || !textarea.value.trim())) textarea.value = fields[name];
+            });
+            form.dataset.dirty = "1";
+        }
+
+        function apply(fields) {
+            if (!names.some(function (name) { return fields[name]; })) {
+                Swal.fire({icon: "info", text: "이미지에서 주요 업무·자격 요건·우대 사항을 찾지 못했습니다."});
+                return;
+            }
+            const conflict = names.some(function (name) {
+                return fields[name] && form.elements[name].value.trim();
+            });
+            if (!conflict) {
+                fill(fields, true);
+                Swal.fire({toast: true, position: "top", icon: "success", title: "공고 정보를 채웠습니다. 내용을 확인하세요.", showConfirmButton: false, timer: 3000});
+                return;
+            }
+            Swal.fire({
+                title: "이미 적어 둔 내용이 있습니다",
+                text: "읽어 온 내용으로 바꿀까요, 아니면 빈 칸만 채울까요?",
+                icon: "question",
+                showCancelButton: true,
+                confirmButtonText: "바꾸기",
+                cancelButtonText: "빈 칸만 채우기",
+            }).then(function (result) {
+                if (result.isConfirmed) fill(fields, true);
+                else if (result.dismiss === Swal.DismissReason.cancel) fill(fields, false);
+            });
+        }
+
+        function send(files) {
+            if (!files.length) return;
+            const data = new FormData();
+            files.forEach(function (file) { data.append("images", file); });
+            Swal.fire({title: "공고 캡처를 읽는 중…", allowOutsideClick: false, didOpen: function () { Swal.showLoading(); }});
+            fetch(box.dataset.url, {
+                method: "POST",
+                headers: {"X-CSRFToken": form.elements.csrfmiddlewaretoken.value},
+                body: data,
+            })
+                .then(function (response) { return response.json(); })
+                .then(function (body) {
+                    Swal.close();
+                    if (body.error) Swal.fire({icon: "error", text: body.error});
+                    else apply(body.fields);
+                })
+                .catch(function () {
+                    Swal.fire({icon: "error", text: "공고 캡처를 읽지 못했습니다. 다시 시도하세요."});
+                });
+        }
+
+        document.getElementById("posting-ocr-pick").addEventListener("click", function () { input.click(); });
+        input.addEventListener("change", function () {
+            send(Array.from(input.files));
+            input.value = "";
+        });
+        document.addEventListener("paste", function (event) {
+            const images = Array.from(event.clipboardData.files).filter(function (file) {
+                return file.type.startsWith("image/");
+            });
+            if (!images.length) return;  // 글자 붙여넣기는 그대로 둔다
+            event.preventDefault();
+            send(images);
+        });
+    })();
+</script>
+{% if not object %}
+<script>
+    // 등록 화면에서 작성 중에 [지원 건 등록]을 다시 누르면 내용을 유지할지 묻는다.
+    (function () {
+        const form = document.getElementById("application-form");
+        const link = document.getElementById("nav-create");
+        if (!form || !link) return;
+        form.addEventListener("input", function () { form.dataset.dirty = "1"; });
+        link.addEventListener("click", function (event) {
+            if (!form.dataset.dirty) return;
+            event.preventDefault();
+            Swal.fire({
+                title: "작성 중인 내용이 있습니다",
+                text: "지금 내용을 유지할까요, 아니면 빈 화면에서 새로 작성할까요?",
+                icon: "question",
+                showCancelButton: true,
+                confirmButtonText: "내용 유지",
+                cancelButtonText: "새로 작성",
+            }).then(function (result) {
+                if (result.dismiss === Swal.DismissReason.cancel) {
+                    window.location.href = link.href;
+                }
+            });
+        });
+    })();
+</script>
+{% endif %}
+{% endblock %}

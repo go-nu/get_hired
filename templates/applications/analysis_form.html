@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}분석 결과 붙여넣기 · 취업 활동 관리{% endblock %}
+
+{% block content %}
+<p class="text-sm text-gray-500">{{ application }}</p>
+<h1 class="mb-1 text-xl font-semibold">분석 결과 붙여넣기</h1>
+<p class="mb-6 text-sm text-gray-500">Claude 앱에서 만든 결과를 항목별로 붙여넣으세요. 저장하면 새 분석으로 추가되고, 이전 분석은 이력으로 남습니다.</p>
+
+<form method="post" class="space-y-5">
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}
+    <p class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{{ error }}</p>
+    {% endfor %}
+    {% for field in form %}
+    {% include "applications/_field.html" %}
+    {% endfor %}
+
+    <div class="flex items-center gap-3">
+        <button type="submit" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">저장</button>
+        <a href="{% url 'applications:detail' application.pk %}" class="text-sm text-gray-600 hover:text-gray-900">취소</a>
+    </div>
+</form>
+{% endblock %}

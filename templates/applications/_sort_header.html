@@ -1,0 +1,1 @@
+<a href="{{ header.url }}" class="inline-flex items-center gap-1 hover:text-gray-900 {% if header.direction %}text-indigo-600{% endif %}" title="{{ header.label }} 기준 정렬">{{ header.label }}<span aria-hidden="true">{% if header.direction == "asc" %}▲{% elif header.direction == "desc" %}▼{% else %}<span class="text-gray-300">-</span>{% endif %}</span></a>

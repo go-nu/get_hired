@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+
+{% block title %}{{ application }} · 취업 활동 관리{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex flex-wrap items-start gap-3">
+    <div>
+        <p class="text-sm text-gray-500">
+            {{ application.company.name }}
+            {% if application.company.is_deleted %}<span class="ml-1 rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-600">삭제된 기업</span>{% endif %}
+        </p>
+        <h1 class="text-xl font-semibold">{{ application.position }}</h1>
+        <p class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600">
+            <span>{{ application.get_source_display }}</span>
+            {% if application.deadline %}
+            <span>마감 {{ application.deadline|date:"Y-m-d" }} {% include "applications/_d_day.html" %}</span>
+            {% else %}
+            <span>상시지원</span>
+            {% endif %}
+            {% if application.applied_at %}<span>지원 {{ application.applied_at|date:"Y-m-d" }}</span>{% endif %}
+            {% if application.posting_url %}<a href="{{ application.posting_url }}" target="_blank" rel="noopener" class="text-indigo-600 hover:underline">공고 열기</a>{% endif %}
+        </p>
+    </div>
+    <div class="ml-auto flex items-center gap-2 text-sm">
+        <a href="{% url 'applications:update' application.pk %}" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 hover:bg-gray-50">수정</a>
+        <a href="{% url 'home' %}" class="text-gray-600 hover:text-gray-900">목록</a>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+    <div class="space-y-4 lg:col-span-2">
+        <section class="rounded-lg border border-gray-200 bg-white">
+            <h2 class="border-b border-gray-200 px-4 py-2 text-sm font-semibold">공고 정보</h2>
+            <dl class="divide-y divide-gray-100 text-sm">
+                <div class="px-4 py-3">
+                    <dt class="mb-1 text-xs font-medium text-gray-500">주요 업무</dt>
+                    <dd class="whitespace-pre-wrap break-words">{{ application.main_tasks|default:"-" }}</dd>
+                </div>
+                <div class="px-4 py-3">
+                    <dt class="mb-1 text-xs font-medium text-gray-500">자격 요건</dt>
+                    <dd class="whitespace-pre-wrap break-words">{{ application.requirements|default:"-" }}</dd>
+                </div>
+                <div class="px-4 py-3">
+                    <dt class="mb-1 text-xs font-medium text-gray-500">우대 사항</dt>
+                    <dd class="whitespace-pre-wrap break-words">{{ application.preferred|default:"-" }}</dd>
+                </div>
+                {# 아래 두 항목은 입력 폼에서 뺐다. 예전에 입력해 둔 값이 있을 때만 보여 준다. #}
+                {% if application.essay_char_limit %}
+                <div class="px-4 py-3">
+                    <dt class="mb-1 text-xs font-medium text-gray-500">자소서 글자 수 제한</dt>
+                    <dd>{{ application.essay_char_limit }}자</dd>
+                </div>
+                {% endif %}
+                {% if application.extra_notes %}
+                <div class="px-4 py-3">
+                    <dt class="mb-1 text-xs font-medium text-gray-500">기타 공고 정보</dt>
+                    <dd class="whitespace-pre-wrap break-words">{{ application.extra_notes }}</dd>
+                </div>
+                {% endif %}
+            </dl>
+        </section>
+
+        <section class="rounded-lg border border-gray-200 bg-white">
+            <div class="flex flex-wrap items-center gap-3 border-b border-gray-200 px-4 py-2">
+                <h2 class="text-sm font-semibold">분석 결과</h2>
+                {% if analysis %}
+                <span class="text-xs text-gray-500">{{ analysis.created_at|date:"Y-m-d H:i" }} · {{ analysis.get_source_display }}{% if analysis != analyses.0 %} · 이전 이력{% endif %}</span>
+                {% endif %}
+                <div class="ml-auto flex items-center gap-2">
+                    {% if not agent_job.is_running and not agent_job.is_waiting %}
+                    <form method="post" action="{% url 'applications:analysis_run' application.pk %}" data-confirm="에이전트로 분석을 실행할까요? 토큰이 사용됩니다.">
+                        {% csrf_token %}
+                        <button type="submit" class="rounded-md bg-indigo-600 px-3 py-1 text-sm font-medium text-white hover:bg-indigo-700">에이전트로 분석</button>
+                    </form>
+                    {% endif %}
+                    <a href="{% url 'applications:analysis_create' application.pk %}" class="rounded-md border border-gray-300 bg-white px-3 py-1 text-sm hover:bg-gray-50">직접 붙여넣기</a>
+                </div>
+            </div>
+
+            {% if agent_job.is_running %}
+            <p id="agent-job-running" class="border-b border-gray-200 bg-indigo-50 px-4 py-2 text-sm text-indigo-800">
+                에이전트가 분석하고 있습니다 · 현재 단계: {{ agent_job.get_step_display|default:"준비" }}{% if agent_job.revisions %} (재작성 {{ agent_job.revisions }}회째){% endif %} · 화면은 자동으로 새로 고쳐집니다.
+            </p>
+            {% elif agent_job.is_waiting %}
+            {# 사람 확인(휴먼 인 더 루프): 그래프가 멈춰서 답을 기다린다. 남은 지적은 바로 아래 노란 상자에 나온다. #}
+            <form method="post" action="{% url 'applications:analysis_resume' application.pk %}" class="space-y-2 border-b border-gray-200 bg-indigo-50 px-4 py-3 text-sm">
+                {% csrf_token %}
+                <p class="font-medium text-indigo-900">에이전트가 확인을 기다립니다</p>
+                <p class="text-indigo-800">{{ agent_job.revisions }}번 다시 썼지만 검수 지적이 남았습니다. 아래 초안과 지적을 보고 정해 주세요.</p>
+                <textarea name="instruction" rows="3" placeholder="다시 쓰게 하려면 지시 사항을 적으세요. 예: 인턴 경험은 빼고 프로젝트 경험 중심으로" class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"></textarea>
+                <div class="flex items-center gap-2">
+                    <button type="submit" name="action" value="{{ human_actions.revise }}" class="rounded-md bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-700">이 지시로 다시 쓰기</button>
+                    <button type="submit" name="action" value="{{ human_actions.accept }}" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 hover:bg-gray-50">이대로 저장</button>
+                </div>
+            </form>
+            {% elif agent_job.error %}
+            <p class="border-b border-gray-200 bg-red-50 px-4 py-2 text-sm text-red-800">
+                최근 에이전트 분석이 실패했습니다: {{ agent_job.error }}
+                <a href="{% url 'agents:run_list' %}?status=failed" class="underline">실행 기록 보기</a>
+            </p>
+            {% endif %}
+
+            {% if not analysis %}
+            <p class="px-4 py-8 text-center text-sm text-gray-500">아직 분석 결과가 없습니다.{% if not application.guideline_version %} 지침 버전을 고르지 않은 지원 건은 기업 조사만 합니다.{% endif %}</p>
+            {% else %}
+            {% if analysis.review_notes %}
+            <div class="border-b border-gray-200 bg-yellow-50 px-4 py-2 text-sm text-yellow-800">
+                <p class="font-medium">검수에서 남은 지적입니다. 지원동기를 쓰기 전에 확인하세요.</p>
+                <pre class="whitespace-pre-wrap break-words font-sans">{{ analysis.review_notes }}</pre>
+            </div>
+            {% endif %}
+            <div class="flex gap-4 border-b border-gray-200 px-4 text-sm" role="tablist">
+                {% for name, label, body in analysis_tabs %}
+                <button type="button" role="tab" data-tab="{{ name }}" class="tab-button -mb-px border-b-2 border-transparent px-1 py-2 text-gray-500 hover:text-gray-900">{{ label }}</button>
+                {% endfor %}
+            </div>
+            {% for name, label, body in analysis_tabs %}
+            <div data-panel="{{ name }}" class="tab-panel hidden px-4 py-3">
+                {% if body %}
+                <pre class="whitespace-pre-wrap break-words font-sans text-sm">{{ body }}</pre>
+                {% else %}
+                <p class="text-sm text-gray-400">내용 없음</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+
+            {% if analyses|length > 1 %}
+            <div class="border-t border-gray-200 px-4 py-3 text-sm">
+                <p class="mb-1 text-xs font-medium text-gray-500">분석 이력</p>
+                <ul class="space-y-1">
+                    {% for item in analyses %}
+                    <li>
+                        <a href="?analysis={{ item.pk }}" class="{% if item == analysis %}font-semibold text-indigo-600{% else %}text-gray-600 hover:text-indigo-600{% endif %}">{{ item.created_at|date:"Y-m-d H:i" }} · {{ item.get_source_display }}{% if forloop.first %} (최신){% endif %}</a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            {% endif %}
+        </section>
+    </div>
+
+    <div class="space-y-4">
+        <section class="rounded-lg border border-gray-200 bg-white">
+            <h2 class="border-b border-gray-200 px-4 py-2 text-sm font-semibold">단계·결과</h2>
+            <form method="post" action="{% url 'applications:stage' application.pk %}" class="space-y-3 px-4 py-3">
+                {% csrf_token %}
+                {% include "applications/_field.html" with field=stage_form.stage %}
+                {% include "applications/_field.html" with field=stage_form.result %}                <button type="submit" class="w-full rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700">저장</button>
+            </form>
+        </section>
+
+        <section class="rounded-lg border border-gray-200 bg-white">
+            <h2 class="border-b border-gray-200 px-4 py-2 text-sm font-semibold">적합도</h2>
+            <dl class="space-y-2 px-4 py-3 text-sm">
+                <div class="flex justify-between"><dt class="text-gray-500">점수</dt><dd>{% if application.fit_score is not None %}{{ application.fit_score }}점{% else %}-{% endif %}</dd></div>
+                <div class="flex justify-between"><dt class="text-gray-500">등급</dt><dd>{{ application.get_fit_grade_display|default:"-" }}</dd></div>
+                <div class="flex justify-between">
+                    <dt class="text-gray-500">지침 버전</dt>
+                    <dd>{% if application.guideline_version %}<a href="{% url 'profiles:detail' application.guideline_version.version %}" class="text-indigo-600 hover:underline">{{ application.guideline_version }}</a>{% else %}-{% endif %}</dd>
+                </div>
+            </dl>
+        </section>
+
+        <section class="rounded-lg border border-gray-200 bg-white">
+            <h2 class="border-b border-gray-200 px-4 py-2 text-sm font-semibold">단계 변경 이력</h2>
+            <ol class="divide-y divide-gray-100 text-sm">
+                {% for history in stage_history %}
+                <li class="flex items-center justify-between px-4 py-2">
+                    <span>{{ history }}</span>
+                    <span class="text-xs text-gray-500">{{ history.changed_at|date:"Y-m-d H:i" }}</span>
+                </li>
+                {% endfor %}
+            </ol>
+        </section>
+
+        {% if application.memo %}
+        <section class="rounded-lg border border-gray-200 bg-white">
+            <h2 class="border-b border-gray-200 px-4 py-2 text-sm font-semibold">메모</h2>
+            <p class="whitespace-pre-wrap break-words px-4 py-3 text-sm">{{ application.memo }}</p>
+        </section>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // 에이전트가 분석하는 동안에는 5초마다 새로 고쳐 진행 단계와 결과를 보여 준다.
+    if (document.getElementById("agent-job-running")) {
+        setTimeout(function () { window.location.reload(); }, 5000);
+    }
+
+    // 분석 결과 탭 전환
+    (function () {
+        const buttons = document.querySelectorAll(".tab-button");
+        const panels = document.querySelectorAll(".tab-panel");
+        if (!buttons.length) return;
+        const active = ["border-indigo-600", "font-medium", "text-indigo-600"];
+        const inactive = ["border-transparent", "text-gray-500"];
+        function show(name) {
+            buttons.forEach(function (button) {
+                const on = button.dataset.tab === name;
+                button.classList.remove(...(on ? inactive : active));
+                button.classList.add(...(on ? active : inactive));
+                button.setAttribute("aria-selected", on);
+            });
+            panels.forEach(function (panel) {
+                panel.classList.toggle("hidden", panel.dataset.panel !== name);
+            });
+        }
+        buttons.forEach(function (button) {
+            button.addEventListener("click", function () { show(button.dataset.tab); });
+        });
+        show(buttons[0].dataset.tab);
+    })();
+</script>
+{% endblock %}

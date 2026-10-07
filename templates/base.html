@@ -1,0 +1,84 @@
+{% load static tailwind_tags %}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}취업 활동 관리{% endblock %}</title>
+    {% tailwind_css %}
+</head>
+
+<body class="min-h-screen bg-gray-50 text-gray-900">
+{% if user.is_authenticated %}
+<header class="border-b border-gray-200 bg-white">
+    <nav class="mx-auto flex max-w-6xl items-center gap-6 px-4 py-3 text-sm">
+        <a href="{% url 'home' %}" class="text-base font-semibold">취업 활동 관리</a>
+        <a href="{% url 'home' %}" class="text-gray-600 hover:text-indigo-600">대시보드</a>
+        <a href="{% url 'applications:company_list' %}" class="text-gray-600 hover:text-indigo-600">기업</a>
+        <a href="{% url 'profiles:active' %}" class="text-gray-600 hover:text-indigo-600">프로필·지침</a>
+        <a id="nav-create" href="{% url 'applications:create' %}" class="ml-auto rounded-md bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-700">지원 건 등록</a>
+        <a href="{% url 'agents:settings' %}" class="text-gray-600 hover:text-indigo-600">사용자</a>
+        <a href="{% url 'agents:run_list' %}" class="text-gray-600 hover:text-indigo-600">관리자</a>
+        <form method="post" action="{% url 'logout' %}">
+            {% csrf_token %}
+            <button type="submit" class="text-gray-500 hover:text-gray-900">로그아웃</button>
+        </form>
+    </nav>
+</header>
+
+{# 응원 이미지 자리: static/images/banner.png 파일을 넣으면 표시된다. 없으면 안내 문구만 보인다. #}
+{# 이미지를 빼고 싶은 화면은 banner 블록을 비워서 덮어쓴다. #}
+{% block banner %}
+<div class="mx-auto max-w-6xl px-4 pt-6">
+    <div id="cheer-banner" class="flex h-40 items-center justify-center overflow-hidden rounded-lg border border-dashed border-gray-300 bg-white text-sm text-gray-400">
+        <img src="{% static 'images/banner.png' %}" alt="취업 응원 이미지" class="h-full w-full object-contain"
+             onerror="this.remove(); document.getElementById('cheer-banner-empty').classList.remove('hidden');"
+             onload="this.parentElement.classList.remove('border', 'border-dashed', 'border-gray-300');">
+        <span id="cheer-banner-empty" class="hidden">응원 이미지 자리 (static/images/banner.png)</span>
+    </div>
+</div>
+{% endblock %}
+{% endif %}
+
+<main class="mx-auto max-w-6xl px-4 py-6">
+    {% block content %}{% endblock %}
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+{% if messages %}
+<script id="django-messages" type="application/json">[{% for message in messages %}{"level": "{{ message.level_tag|escapejs }}", "text": "{{ message|escapejs }}"}{% if not forloop.last %},{% endif %}{% endfor %}]</script>
+{% endif %}
+<script>
+    // Django messages → SweetAlert2 토스트
+    (function () {
+        const el = document.getElementById("django-messages");
+        if (!el) return;
+        const icons = {success: "success", error: "error", warning: "warning", info: "info", debug: "info"};
+        const Toast = Swal.mixin({toast: true, position: "top", showConfirmButton: false, timer: 3000, timerProgressBar: true});
+        JSON.parse(el.textContent).reduce(
+            (chain, m) => chain.then(() => Toast.fire({icon: icons[m.level] || "info", title: m.text})),
+            Promise.resolve()
+        );
+    })();
+
+    // data-confirm 속성이 있는 폼은 제출 전에 SweetAlert2로 확인한다.
+    document.addEventListener("submit", function (event) {
+        const form = event.target;
+        if (!form.dataset.confirm || form.dataset.confirmed) return;
+        event.preventDefault();
+        Swal.fire({
+            text: form.dataset.confirm,
+            icon: "question",
+            showCancelButton: true,
+            confirmButtonText: "확인",
+            cancelButtonText: "취소",
+        }).then(function (result) {
+            if (!result.isConfirmed) return;
+            form.dataset.confirmed = "1";
+            form.submit();
+        });
+    });
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

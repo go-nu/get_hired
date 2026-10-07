@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}사용자 · 취업 활동 관리{% endblock %}
+
+{% block banner %}{% endblock %}
+
+{% block content %}
+<h1 class="mb-1 text-xl font-semibold">사용자</h1>
+<p class="mb-6 text-sm text-gray-500">{{ user.username }} · 에이전트가 사용할 AI와 API 키를 정합니다.</p>
+
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+    <form method="post" class="space-y-4 rounded-lg border border-gray-200 bg-white p-4">
+        {% csrf_token %}
+        <h2 class="text-sm font-semibold">AI 설정</h2>
+        {% for error in form.non_field_errors %}
+        <p class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{{ error }}</p>
+        {% endfor %}
+        {% include "applications/_field.html" with field=form.provider %}
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {% include "applications/_field.html" with field=form.claude_model %}
+            {% include "applications/_field.html" with field=form.claude_api_key %}
+            {% include "applications/_field.html" with field=form.gemini_model %}
+            {% include "applications/_field.html" with field=form.gemini_api_key %}
+        </div>
+        <p class="text-xs text-gray-500">API 키는 암호화해서 저장하며 화면에 다시 보여 주지 않습니다. 칸을 비워 두면 저장된 키를 그대로 씁니다.</p>
+        <button type="submit" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">저장</button>
+    </form>
+
+    <section class="rounded-lg border border-gray-200 bg-white">
+        <h2 class="border-b border-gray-200 px-4 py-2 text-sm font-semibold">토큰 사용량</h2>
+        <table class="w-full text-left text-sm">
+            <thead class="border-b border-gray-200 bg-gray-50 text-xs text-gray-500">
+                <tr>
+                    <th class="px-4 py-2 font-medium">AI</th>
+                    <th class="px-4 py-2 font-medium">기간</th>
+                    <th class="px-4 py-2 text-right font-medium">실행</th>
+                    <th class="px-4 py-2 text-right font-medium">입력 토큰</th>
+                    <th class="px-4 py-2 text-right font-medium">출력 토큰</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for row in usage_rows %}
+                <tr>
+                    <td class="px-4 py-2 font-medium" rowspan="2">{{ row.label }}</td>
+                    <td class="px-4 py-2 text-gray-500">이번 달</td>
+                    <td class="px-4 py-2 text-right">{{ row.month.runs|intcomma }}회</td>
+                    <td class="px-4 py-2 text-right">{{ row.month.input|intcomma }}</td>
+                    <td class="px-4 py-2 text-right">{{ row.month.output|intcomma }}</td>
+                </tr>
+                <tr>
+                    <td class="px-4 py-2 text-gray-500">전체</td>
+                    <td class="px-4 py-2 text-right">{{ row.total.runs|intcomma }}회</td>
+                    <td class="px-4 py-2 text-right">{{ row.total.input|intcomma }}</td>
+                    <td class="px-4 py-2 text-right">{{ row.total.output|intcomma }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p class="border-t border-gray-200 px-4 py-2 text-xs text-gray-500">
+            실패한 실행은 토큰이 0으로 잡힙니다. 실행별 내역은 <a href="{% url 'agents:run_list' %}" class="text-indigo-600 hover:underline">관리자</a> 페이지에서 봅니다.
+        </p>
+    </section>
+</div>
+{% endblock %}

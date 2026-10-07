@@ -1,0 +1,22 @@
+# 비밀 값
+.env
+
+# Claude 작업 지침 (로컬 전용)
+CLAUDE.md
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Django
+db.sqlite3
+/staticfiles/
+/media/
+
+# Node / Tailwind
+node_modules/
+
+# 에디터
+.vscode/
+.idea/

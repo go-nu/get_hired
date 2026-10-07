@@ -1,0 +1,1 @@
+<span class="{% if application.deadline_level == 'today' %}font-bold text-red-600{% elif application.deadline_level == 'soon' %}font-semibold text-orange-600{% else %}text-gray-500{% endif %}">{{ application.d_day_label }}</span>

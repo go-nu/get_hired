@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}기업 · 취업 활동 관리{% endblock %}
+
+{% block content %}
+<section class="mb-6 rounded-lg border border-gray-200 bg-white p-4">
+    <form method="get" class="flex items-center gap-2">
+        <label for="company-search" class="shrink-0 text-sm font-medium">지원 이력 검색</label>
+        <input type="search" name="q" id="company-search" value="{{ query }}" placeholder="기업명" required
+               class="w-full max-w-xs rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+        <button type="submit" class="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-900">검색</button>
+        {% if query %}<a href="{% url 'applications:company_list' %}" class="text-sm text-gray-500 hover:text-gray-900">지우기</a>{% endif %}
+    </form>
+    {% if query %}
+    <div id="search-result" class="mt-3 space-y-1 border-t border-gray-100 pt-3 text-sm">
+        {% for company in search_results %}
+        <p>검색 결과 : <span class="font-medium">{{ company.name }}</span> | 지원 이력 {% if company.applied_count %}<span class="font-semibold text-indigo-600">O ({{ company.applied_count }}회)</span>{% else %}<span class="font-semibold text-gray-500">X</span>{% endif %}</p>
+        {% empty %}
+        <p>검색 결과 : <span class="font-medium">{{ query }}</span> | 지원 이력 <span class="font-semibold text-gray-500">X</span> <span class="text-gray-400">(등록된 기업 없음)</span></p>
+        {% endfor %}
+    </div>
+    {% endif %}
+</section>
+
+<div class="mb-4 flex items-center gap-3">
+    <h1 class="text-xl font-semibold">기업</h1>
+    <a href="{% url 'applications:company_deleted_list' %}" class="ml-auto text-sm text-gray-600 hover:text-indigo-600">삭제된 기업 ({{ deleted_count }})</a>
+</div>
+
+{% if not companies %}
+<p class="rounded-lg border border-dashed border-gray-300 bg-white p-10 text-center text-gray-600">등록된 기업이 없습니다. 지원 건을 등록하면 기업이 함께 만들어집니다.</p>
+{% else %}
+<div class="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+    <table class="w-full text-left text-sm">
+        <thead class="border-b border-gray-200 bg-gray-50 text-xs text-gray-500">
+            <tr>
+                <th class="px-4 py-2 font-medium">기업명</th>
+                <th class="px-4 py-2 font-medium">업종</th>
+                <th class="px-4 py-2 font-medium">규모</th>
+                <th class="px-4 py-2 font-medium">지원 건</th>
+                <th class="px-4 py-2"></th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+            {% for company in companies %}
+            <tr>
+                <td class="px-4 py-2 font-medium">
+                    {{ company.name }}
+                    {% if company.website %}<a href="{{ company.website }}" target="_blank" rel="noopener" class="ml-1 text-xs font-normal text-indigo-600 hover:underline">웹사이트</a>{% endif %}
+                </td>
+                <td class="px-4 py-2 text-gray-600">{{ company.industry|default:"-" }}</td>
+                <td class="px-4 py-2 text-gray-600">{{ company.get_size_display|default:"-" }}</td>
+                <td class="px-4 py-2 text-gray-600">{{ company.application_count }}건{% if company.applied_count %} <span class="text-xs text-gray-400">(지원 {{ company.applied_count }})</span>{% endif %}</td>
+                <td class="px-4 py-2">
+                    <div class="flex items-center justify-end gap-3">
+                        <a href="{% url 'applications:company_update' company.pk %}" class="text-gray-600 hover:text-indigo-600">수정</a>
+                        {% if company.applied_count %}
+                        <span class="cursor-not-allowed text-gray-300" title="이미 지원한 기업은 삭제할 수 없습니다.">삭제</span>
+                        {% else %}
+                        <form method="post" action="{% url 'applications:company_delete' company.pk %}" data-confirm="{{ company.name }} 을(를) 삭제할까요?{% if company.application_count %} 관심 단계 지원 건 {{ company.application_count }}건도 목록에서 숨겨집니다.{% endif %}">
+                            {% csrf_token %}
+                            <button type="submit" class="text-red-600 hover:text-red-800">삭제</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+<div class="mt-4">{% include "_pagination.html" %}</div>
+{% endif %}
+{% endblock %}

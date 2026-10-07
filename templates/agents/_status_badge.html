@@ -1,0 +1,1 @@
+<span class="rounded-full px-2 py-0.5 text-xs font-medium {% if run.status == 'succeeded' %}bg-green-100 text-green-800{% elif run.status == 'failed' %}bg-red-100 text-red-800{% else %}bg-gray-100 text-gray-600{% endif %}">{{ run.get_status_display }}</span>

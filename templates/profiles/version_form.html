@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}새로 작성 · 취업 활동 관리{% endblock %}
+
+{% block content %}
+{% include "profiles/_tabs.html" with tab="" %}
+
+<h1 class="mb-1 text-xl font-semibold">새로 작성</h1>
+<p class="mb-6 text-sm text-gray-500">
+    {% if base_version %}{{ base_version }} 내용에서 시작합니다. {% endif %}저장하면 새 버전이 되어 바로 사용됩니다. 이전 버전은 지워지지 않습니다.
+</p>
+
+<form method="post" id="profile-form" class="space-y-5"{% if form.is_bound %} data-dirty="1"{% endif %}>
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    {% for field in form %}
+    <div>
+        <label for="{{ field.id_for_label }}" class="mb-1 block text-sm font-medium">{{ field.label }}</label>
+        {{ field }}
+        {% for error in field.errors %}
+        <p class="mt-1 text-sm text-red-600">{{ error }}</p>
+        {% endfor %}
+    </div>
+    {% endfor %}
+
+    <div class="flex items-center gap-3">
+        <button type="submit" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">저장</button>
+        <a href="{% url 'profiles:active' %}" class="text-sm text-gray-600 hover:text-gray-900">취소</a>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // 작성 중에 [새로 작성]을 다시 누르면 내용을 유지할지 묻는다.
+    (function () {
+        const form = document.getElementById("profile-form");
+        const link = document.getElementById("profile-create");
+        if (!form || !link) return;
+        form.addEventListener("input", function () { form.dataset.dirty = "1"; });
+        link.addEventListener("click", function (event) {
+            if (!form.dataset.dirty) return;
+            event.preventDefault();
+            Swal.fire({
+                title: "작성 중인 내용이 있습니다",
+                text: "지금 내용을 유지할까요, 아니면 버리고 처음부터 새로 작성할까요?",
+                icon: "question",
+                showCancelButton: true,
+                confirmButtonText: "내용 유지",
+                cancelButtonText: "새로 작성",
+            }).then(function (result) {
+                if (result.dismiss === Swal.DismissReason.cancel) {
+                    window.location.href = link.href;
+                }
+            });
+        });
+    })();
+</script>
+{% endblock %}

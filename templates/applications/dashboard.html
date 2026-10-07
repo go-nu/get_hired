@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+
+{% block title %}대시보드 · 취업 활동 관리{% endblock %}
+
+{% block content %}
+<section class="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <div class="rounded-lg border border-gray-200 bg-white p-4">
+        <p class="text-xs text-gray-500">전체 지원 수</p>
+        <p class="mt-1 text-2xl font-semibold">{{ stats.total_applied }}</p>
+    </div>
+    <div class="rounded-lg border border-gray-200 bg-white p-4">
+        <p class="text-xs text-gray-500">진행 중</p>
+        <p class="mt-1 text-2xl font-semibold">{{ stats.in_progress }}</p>
+    </div>
+    <div class="rounded-lg border border-gray-200 bg-white p-4">
+        <p class="text-xs text-gray-500">이번 주 마감 (미지원)</p>
+        <p class="mt-1 text-2xl font-semibold {% if stats.due_this_week %}text-red-600{% endif %}">{{ stats.due_this_week }}</p>
+    </div>
+</section>
+
+<section class="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-6">
+    {% for label, count in stats.stages %}
+    <div class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-center">
+        <p class="text-xs text-gray-500">{{ label }}</p>
+        <p class="mt-0.5 text-lg font-semibold">{{ count }}</p>
+    </div>
+    {% endfor %}
+</section>
+
+<form method="get" class="mb-3 flex flex-wrap items-center gap-2">
+    {{ filter_form.stage }}
+    {{ filter_form.result }}
+    {{ filter_form.source }}
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="dir" value="{{ direction }}">
+    <button type="submit" class="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-900">적용</button>
+    {% if is_filtered %}<a href="{% url 'home' %}" class="text-sm text-gray-500 hover:text-gray-900">필터 해제</a>{% endif %}
+    <span class="ml-auto text-sm text-gray-500">{{ page_obj.paginator.count }}건</span>
+</form>
+
+{% if not applications %}
+<div class="rounded-lg border border-dashed border-gray-300 bg-white p-10 text-center">
+    {% if is_filtered %}
+    <p class="text-gray-600">조건에 맞는 지원 건이 없습니다.</p>
+    {% else %}
+    <p class="mb-4 text-gray-600">아직 등록한 지원 건이 없습니다.</p>
+    <a href="{% url 'applications:create' %}" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">첫 지원 건 등록</a>
+    {% endif %}
+</div>
+{% else %}
+<div class="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+    <table class="w-full whitespace-nowrap text-left text-sm">
+        <thead class="border-b border-gray-200 bg-gray-50 text-xs text-gray-500">
+            <tr>
+                <th class="px-4 py-2 font-medium">{% include "applications/_sort_header.html" with header=sort_headers.index %}</th>
+                <th class="px-4 py-2 font-medium">기업명</th>
+                <th class="px-4 py-2 font-medium">직무</th>
+                <th class="px-4 py-2 font-medium">적합도</th>
+                <th class="px-4 py-2 font-medium">지원 경로</th>
+                <th class="px-4 py-2 font-medium">{% include "applications/_sort_header.html" with header=sort_headers.deadline %}</th>
+                <th class="px-4 py-2 font-medium">지원일</th>
+                <th class="px-4 py-2 font-medium">단계</th>
+                <th class="px-4 py-2 font-medium">{% include "applications/_sort_header.html" with header=sort_headers.result %}</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+            {% for application in applications %}
+            <tr data-href="{% url 'applications:detail' application.pk %}" class="cursor-pointer {% if application.is_urgent %}bg-red-50 hover:bg-red-100{% else %}hover:bg-gray-50{% endif %}">
+                <td class="px-4 py-2 text-gray-500">{{ application.number }}</td>
+                <td class="px-4 py-2 font-medium">
+                    <a href="{% url 'applications:detail' application.pk %}" class="text-indigo-600 hover:underline">{{ application.company.name }}</a>
+                </td>
+                <td class="max-w-xs truncate px-4 py-2">{{ application.position }}</td>
+                <td class="px-4 py-2">
+                    {% if application.fit_score is not None %}{{ application.fit_score }}점{% endif %}
+                    {% if application.fit_grade %}<span class="text-gray-500">({{ application.get_fit_grade_display }})</span>{% endif %}
+                    {% if application.fit_score is None and not application.fit_grade %}<span class="text-gray-400">-</span>{% endif %}
+                </td>
+                <td class="px-4 py-2 text-gray-600">{{ application.get_source_display }}</td>
+                <td class="px-4 py-2">
+                    {% if application.deadline %}
+                    {{ application.deadline|date:"m/d" }}
+                    <span class="ml-1 text-xs">{% include "applications/_d_day.html" %}</span>
+                    {% else %}<span class="text-gray-500">상시지원</span>{% endif %}
+                </td>
+                <td class="px-4 py-2 text-gray-600">{{ application.applied_at|date:"m/d"|default:"-" }}</td>
+                <td class="px-4 py-2">{{ application.get_stage_display }}</td>
+                <td class="px-4 py-2">
+                    {% include "applications/_result_badge.html" %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% endif %}
+
+{# 표 아래 줄: 가운데 페이지네이션, 오른쪽 미응답 처리 버튼 #}
+<div class="mt-4 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+    <div></div>
+    <div>{% if applications %}{% include "_pagination.html" %}{% endif %}</div>
+    <div class="flex justify-end">
+        <button type="button" id="no-response-open" class="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50">미응답 처리</button>
+    </div>
+</div>
+
+{# 미응답 처리 모달에서 체크한 건의 id 를 담아 보내는 폼 #}
+<form id="no-response-form" method="post" action="{% url 'applications:no_response_fail' %}" class="hidden">
+    {% csrf_token %}
+</form>
+
+{# 미응답 처리 모달 내용 (SweetAlert2 가 복사해서 띄운다) #}
+<template id="no-response-template">
+    <div class="text-left text-sm text-gray-900">
+        <div class="mb-1 flex items-center gap-4">
+            <span class="font-medium">기준</span>
+            {% for days in no_response_day_options %}
+            <label class="inline-flex items-center gap-1.5">
+                <input type="radio" name="no-response-days" value="{{ days }}" {% if forloop.first %}checked{% endif %}>
+                {{ days }}일
+            </label>
+            {% endfor %}
+        </div>
+        <p class="mb-3 text-xs text-gray-500">마감 후(상시지원은 지원 후) 선택한 일수가 지나도록 미열람·열람인 지원 건입니다.</p>
+        <p class="mb-1 text-xs font-medium text-gray-700" data-count></p>
+
+        <div class="overflow-hidden rounded-md border border-gray-200">
+            <label class="flex items-center gap-3 border-b border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                <input type="checkbox" data-select-all checked>
+                <span class="flex-1">기업명</span>
+                <span>마감일</span>
+            </label>
+            {# 8줄 높이로 고정 (줄 36px × 8 + 구분선 7px). 넘치면 이 안에서만 스크롤한다. #}
+            <div class="h-[295px] divide-y divide-gray-100 overflow-y-auto">
+                {% for candidate in no_response_candidates %}
+                <label class="flex items-center gap-3 px-3 py-2" data-days="{{ candidate.days_without_response }}">
+                    <input type="checkbox" value="{{ candidate.pk }}" checked>
+                    <span class="flex-1 truncate font-medium" title="{{ candidate.position }}">{{ candidate.company.name }}</span>
+                    <span class="shrink-0 text-gray-600">
+                        {% if candidate.deadline %}
+                        {{ candidate.deadline|date:"m/d" }} <span class="font-semibold text-red-600">{{ candidate.d_day_label }}</span>
+                        {% else %}
+                        상시지원 <span class="font-semibold text-red-600">지원 후 {{ candidate.days_without_response }}일</span>
+                        {% endif %}
+                    </span>
+                </label>
+                {% endfor %}
+                <p data-empty class="hidden px-3 py-6 text-center text-gray-500">대상이 없습니다.</p>
+            </div>
+        </div>
+    </div>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // 미응답 처리 모달: 기준 일수로 목록을 거르고, 체크한 건만 불합격으로 전환한다.
+    document.getElementById("no-response-open").addEventListener("click", function () {
+        const content = document.createElement("div");
+        content.appendChild(document.getElementById("no-response-template").content.cloneNode(true));
+        const rows = Array.from(content.querySelectorAll("[data-days]"));
+        const selectAll = content.querySelector("[data-select-all]");
+        const visibleRows = function () {
+            return rows.filter(function (row) { return !row.classList.contains("hidden"); });
+        };
+
+        function applyDays() {
+            const days = Number(content.querySelector("input[name='no-response-days']:checked").value);
+            rows.forEach(function (row) {
+                const show = Number(row.dataset.days) >= days;
+                row.classList.toggle("hidden", !show);
+                row.querySelector("input").checked = show;
+            });
+            const count = visibleRows().length;
+            content.querySelector("[data-empty]").classList.toggle("hidden", count > 0);
+            selectAll.disabled = count === 0;
+            updateCount();
+        }
+
+        function updateCount() {
+            const visible = visibleRows();
+            const selected = visible.filter(function (row) { return row.querySelector("input").checked; }).length;
+            content.querySelector("[data-count]").textContent = "대상 " + visible.length + "건 · 선택 " + selected + "건";
+            selectAll.checked = visible.length > 0 && selected === visible.length;
+        }
+
+        content.querySelectorAll("input[name='no-response-days']").forEach(function (radio) {
+            radio.addEventListener("change", applyDays);
+        });
+        selectAll.addEventListener("change", function () {
+            visibleRows().forEach(function (row) { row.querySelector("input").checked = selectAll.checked; });
+            updateCount();
+        });
+        rows.forEach(function (row) {
+            row.querySelector("input").addEventListener("change", updateCount);
+        });
+        applyDays();
+
+        Swal.fire({
+            title: "미응답 처리",
+            html: content,
+            showCancelButton: true,
+            confirmButtonText: "불합격 전환",
+            cancelButtonText: "닫기",
+            focusConfirm: false,
+            preConfirm: function () {
+                const ids = visibleRows()
+                    .map(function (row) { return row.querySelector("input"); })
+                    .filter(function (input) { return input.checked; })
+                    .map(function (input) { return input.value; });
+                if (!ids.length) {
+                    Swal.showValidationMessage("선택한 항목이 없습니다.");
+                    return false;
+                }
+                return ids;
+            },
+        }).then(function (result) {
+            if (!result.isConfirmed) return;
+            const form = document.getElementById("no-response-form");
+            result.value.forEach(function (id) {
+                const input = document.createElement("input");
+                input.type = "hidden";
+                input.name = "ids";
+                input.value = id;
+                form.appendChild(input);
+            });
+            form.submit();
+        });
+    });
+</script>
+<script>
+    // 행 어디를 눌러도 상세로 이동한다. (링크·버튼을 직접 누른 경우는 그대로 둔다)
+    document.querySelectorAll("tr[data-href]").forEach(function (row) {
+        row.addEventListener("click", function (event) {
+            if (event.target.closest("a, button")) return;
+            if (window.getSelection().toString()) return;
+            window.location.href = row.dataset.href;
+        });
+    });
+</script>
+{% endblock %}
