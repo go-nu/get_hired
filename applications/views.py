@@ -4,7 +4,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.core.exceptions import ValidationError
-from django.db.models import Case, Count, F, IntegerField, Q, When
+from django.db.models import Case, Count, Exists, F, IntegerField, OuterRef, Q, When
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
@@ -18,7 +18,7 @@ from django.views.generic import (
     UpdateView,
 )
 
-from agents.models import AgentJob
+from agents.models import AgentJob, Status
 from agents.providers import ProviderError
 
 from .forms import (
@@ -39,6 +39,7 @@ from .models import (
 from .analysis_graph import ACCEPT, REVISE
 from .services import (
     ANALYSIS_FIELDS,
+    read_memo_images,
     read_posting_images,
     resume_analysis,
     save_manual_analysis,
@@ -103,6 +104,8 @@ def dashboard_stats():
             deadline__range=(monday, sunday),
         ).count(),
         "stages": [(label, by_stage.get(value, 0)) for value, label in Stage.choices],
+        # 에이전트가 사람의 답을 기다리는 건
+        "waiting": visible.filter(agent_jobs__status=Status.WAITING).distinct().count(),
     }
 
 
@@ -143,7 +146,19 @@ class DashboardView(LoginRequiredMixin, PageLinksMixin, ListView):
         return sort, direction
 
     def get_queryset(self):
-        queryset = Application.objects.visible().select_related("company")
+        queryset = (
+            Application.objects.visible()
+            .select_related("company")
+            .annotate(
+                is_waiting=Exists(
+                    AgentJob.objects.filter(
+                        application=OuterRef("pk"), status=Status.WAITING
+                    )
+                )
+            )
+        )
+        if self.request.GET.get("waiting"):  # 확인 대기 카드를 눌렀을 때
+            queryset = queryset.filter(is_waiting=True)
         form = self.get_filter_form()
         filters = form.cleaned_data if form.is_valid() else {}
         for name in ("stage", "result", "source"):
@@ -191,8 +206,10 @@ class DashboardView(LoginRequiredMixin, PageLinksMixin, ListView):
             filter_form=self.get_filter_form(),
             stats=dashboard_stats(),
             is_filtered=any(
-                self.request.GET.get(name) for name in ("stage", "result", "source")
+                self.request.GET.get(name)
+                for name in ("stage", "result", "source", "waiting")
             ),
+            waiting_only=bool(self.request.GET.get("waiting")),
             # 미응답 처리 모달: 가장 짧은 기준의 대상을 모두 내려 주고, 일수 선택은 화면에서 거른다.
             # 가장 오래 응답이 없는 건이 위로 온다.
             no_response_candidates=sorted(
@@ -277,6 +294,9 @@ OCR_IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp", "image/gif")
 class PostingOcrView(LoginRequiredMixin, View):
     """등록·수정 폼에서 공고 캡처를 올리면 칸별로 읽은 글을 JSON으로 돌려준다."""
 
+    def read(self, user, images):
+        return {"fields": read_posting_images(user, images)}
+
     def post(self, request):
         files = request.FILES.getlist("images")
         if not files:
@@ -289,16 +309,23 @@ class PostingOcrView(LoginRequiredMixin, View):
             if file.size > OCR_MAX_BYTES:
                 return self.error("이미지 한 장은 5MB 이하여야 합니다.")
         try:
-            fields = read_posting_images(
+            result = self.read(
                 request.user, [(file.read(), file.content_type) for file in files]
             )
         except ProviderError as error:
             return self.error(str(error), status=502)
-        return JsonResponse({"fields": fields})
+        return JsonResponse(result)
 
     @staticmethod
     def error(message, status=400):
         return JsonResponse({"error": message}, status=status)
+
+
+class MemoOcrView(PostingOcrView):
+    """메모 칸에 붙여넣은 이미지의 글자를 그대로 읽어 돌려준다."""
+
+    def read(self, user, images):
+        return {"text": read_memo_images(user, images)}
 
 
 class ApplicationDetailView(LoginRequiredMixin, DetailView):

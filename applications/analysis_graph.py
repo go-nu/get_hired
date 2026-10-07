@@ -35,6 +35,7 @@ from agents.models import Role
 
 from . import prompts
 from .models import Application, Company
+from .scoring import EXTRA_MAX, VERDICT_RATIOS, score_evaluation
 
 # 검수에서 지적받았을 때 AI끼리 다시 쓰게 하는 최대 횟수. 넘으면 사람에게 묻는다.
 MAX_REVISIONS = 2
@@ -43,8 +44,7 @@ MAX_REVISIONS = 2
 ACCEPT = "accept"  # 이대로 저장
 REVISE = "revise"  # 지시를 주고 다시 쓰기
 
-FitGradeLabel = Literal[tuple(Application.FitGrade.labels)]
-FIT_GRADE_BY_LABEL = {label: value for value, label in Application.FitGrade.choices}
+Verdict = Literal[tuple(VERDICT_RATIOS)]
 SIZE_BY_LABEL = {label: value for value, label in Company.Size.choices}
 
 # 기업 조사 답변 끝의 "[기업 정보] / 업종: … / 규모: …" 부분
@@ -54,10 +54,21 @@ COMPANY_INFO_PATTERN = re.compile(
 )
 
 
+class Judgement(BaseModel):
+    item: str = Field(description="공고에 적힌 항목 하나 (원문을 짧게 옮김)")
+    verdict: Verdict = Field(description="지원자 프로필에 비춘 판정")
+    reason: str = Field(description="판정 근거가 되는 프로필 내용 한 문장")
+
+
 class Evaluation(BaseModel):
-    fit_evaluation: str = Field(description="적합도 평가 근거")
-    fit_score: int = Field(description="적합도 점수, 0~100 정수")
-    fit_grade: FitGradeLabel = Field(description="적합도 등급")
+    """평가 에이전트의 답. 점수와 등급은 여기에 없고 scoring.py 가 판정으로 계산한다."""
+
+    requirements: list[Judgement] = Field(description="자격 요건 항목별 판정")
+    preferred: list[Judgement] = Field(description="우대 사항 항목별 판정")
+    tasks: list[Judgement] = Field(description="주요 업무 항목별로 관련 경험이 있는지 판정")
+    extra_score: int = Field(description=f"그 밖의 적합도, 0~{EXTRA_MAX} 정수")
+    extra_reason: str = Field(description="extra_score 의 근거 한두 문장")
+    summary: str = Field(description="강점과 보완할 점 종합")
 
 
 class Draft(BaseModel):
@@ -176,11 +187,8 @@ def evaluate(state: AnalysisState, runtime: Runtime[AnalysisContext]):
         text=prompts.build_prompt(*_shared_blocks(state, runtime.context)),
         schema=Evaluation,
     )
-    return {
-        "fit_evaluation": result.fit_evaluation.strip(),
-        "fit_score": max(0, min(100, result.fit_score)),
-        "fit_grade": FIT_GRADE_BY_LABEL[result.fit_grade],
-    }
+    score, grade, text = score_evaluation(result)
+    return {"fit_evaluation": text, "fit_score": score, "fit_grade": grade}
 
 
 def write(state: AnalysisState, runtime: Runtime[AnalysisContext]):

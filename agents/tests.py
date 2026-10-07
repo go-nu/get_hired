@@ -194,6 +194,15 @@ class PostingOcrTests(LoggedInTestCase):
         self.assertIn("API 키가 없습니다", response.json()["error"])
         self.assertEqual(AgentRun.objects.get().status, AgentRun.Status.FAILED)
 
+    @mock.patch("agents.services.complete")
+    def test_memo_ocr_returns_plain_text(self, complete_mock):
+        complete_mock.return_value = Completion(" 면접 일정: 10/20 14시\n장소: 본사 3층 ", 500, 20)
+        response = self.client.post(reverse("applications:memo_ocr"), {"images": [self.image()]})
+        self.assertEqual(response.json(), {"text": "면접 일정: 10/20 14시\n장소: 본사 3층"})
+        self.assertIsNone(complete_mock.call_args.kwargs["schema"])  # 칸 나누기 없이 글 그대로
+        self.assertEqual(self.client.post(reverse("applications:memo_ocr")).status_code, 400)
+
     def test_form_shows_capture_box(self):
         response = self.client.get(reverse("applications:create"))
         self.assertContains(response, 'id="posting-ocr"')
+        self.assertContains(response, 'id="memo-ocr"')

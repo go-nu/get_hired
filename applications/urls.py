@@ -7,6 +7,7 @@ app_name = "applications"
 urlpatterns = [
     path("new/", views.ApplicationCreateView.as_view(), name="create"),
     path("posting-ocr/", views.PostingOcrView.as_view(), name="posting_ocr"),
+    path("memo-ocr/", views.MemoOcrView.as_view(), name="memo_ocr"),
     path(
         "no-response/fail/",
         views.NoResponseFailView.as_view(),

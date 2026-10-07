@@ -3,7 +3,7 @@
 {% block title %}대시보드 · 취업 활동 관리{% endblock %}
 
 {% block content %}
-<section class="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+<section class="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-4">
     <div class="rounded-lg border border-gray-200 bg-white p-4">
         <p class="text-xs text-gray-500">전체 지원 수</p>
         <p class="mt-1 text-2xl font-semibold">{{ stats.total_applied }}</p>
@@ -16,6 +16,11 @@
         <p class="text-xs text-gray-500">이번 주 마감 (미지원)</p>
         <p class="mt-1 text-2xl font-semibold {% if stats.due_this_week %}text-red-600{% endif %}">{{ stats.due_this_week }}</p>
     </div>
+    {# 에이전트가 사람의 답을 기다리는 지원 건. 누르면 그 건만 보여 준다. #}
+    <a href="{% url 'home' %}?waiting=1" class="rounded-lg border p-4 {% if stats.waiting %}border-yellow-300 bg-yellow-50 hover:bg-yellow-100{% else %}border-gray-200 bg-white hover:bg-gray-50{% endif %}">
+        <p class="text-xs text-gray-500">확인 대기</p>
+        <p class="mt-1 text-2xl font-semibold {% if stats.waiting %}text-yellow-700{% endif %}">{{ stats.waiting }}</p>
+    </a>
 </section>
 
 <section class="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-6">
@@ -33,6 +38,7 @@
     {{ filter_form.source }}
     <input type="hidden" name="sort" value="{{ sort }}">
     <input type="hidden" name="dir" value="{{ direction }}">
+    {% if waiting_only %}<input type="hidden" name="waiting" value="1">{% endif %}
     <button type="submit" class="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-900">적용</button>
     {% if is_filtered %}<a href="{% url 'home' %}" class="text-sm text-gray-500 hover:text-gray-900">필터 해제</a>{% endif %}
     <span class="ml-auto text-sm text-gray-500">{{ page_obj.paginator.count }}건</span>
@@ -65,10 +71,15 @@
         </thead>
         <tbody class="divide-y divide-gray-100">
             {% for application in applications %}
-            <tr data-href="{% url 'applications:detail' application.pk %}" class="cursor-pointer {% if application.is_urgent %}bg-red-50 hover:bg-red-100{% else %}hover:bg-gray-50{% endif %}">
+            <tr data-href="{% url 'applications:detail' application.pk %}" class="cursor-pointer hover:bg-gray-50">
                 <td class="px-4 py-2 text-gray-500">{{ application.number }}</td>
-                <td class="px-4 py-2 font-medium">
-                    <a href="{% url 'applications:detail' application.pk %}" class="text-indigo-600 hover:underline">{{ application.company.name }}</a>
+                {# 칸 너비를 고정한다. 배지가 붙으면 기업명이 "…"으로 줄어든다. #}
+                <td class="w-48 max-w-[12rem] px-4 py-2 font-medium">
+                    <div class="flex items-center gap-1.5">
+                        <a href="{% url 'applications:detail' application.pk %}" title="{{ application.company.name }}" class="min-w-0 truncate text-indigo-600 hover:underline">{{ application.company.name }}</a>
+                        {# 배지 색: 마감이 7일 이내면 옅은 빨강에 굵은 검은 글씨, 그보다 여유가 있으면 옅은 노랑 #}
+                        {% if application.is_waiting %}<span class="shrink-0 rounded-full px-2 py-0.5 text-xs {% if application.deadline_level %}bg-red-200 font-bold text-black{% else %}bg-yellow-100 font-medium text-yellow-900{% endif %}">확인 대기</span>{% endif %}
+                    </div>
                 </td>
                 <td class="max-w-xs truncate px-4 py-2">{{ application.position }}</td>
                 <td class="px-4 py-2">

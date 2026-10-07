@@ -46,7 +46,7 @@
                 <span class="text-gray-600">공고 캡처를 넣으면 아래 세 칸을 자동으로 채웁니다.</span>
                 <input type="file" id="posting-ocr-files" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
                 <button type="button" id="posting-ocr-pick" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 hover:bg-gray-50">이미지 선택</button>
-                <span class="text-xs text-gray-500">또는 이 화면에서 Ctrl+V로 붙여넣기 · 최대 5장</span>
+                <span class="text-xs text-gray-500">또는 이 화면에서 Ctrl+V로 붙여넣기 (메모 칸을 클릭한 상태는 제외) · 최대 5장</span>
             </div>
             {% include "applications/_field.html" with field=form.main_tasks %}
             {% include "applications/_field.html" with field=form.requirements %}
@@ -65,6 +65,7 @@
     <fieldset class="rounded-lg border border-gray-200 bg-white p-4">
         <legend class="px-1 text-sm font-semibold">메모</legend>
         {% include "applications/_field.html" with field=form.memo %}
+        <p id="memo-ocr" data-url="{% url 'applications:memo_ocr' %}" class="mt-1 text-xs text-gray-500">메모 칸을 클릭한 뒤 Ctrl+V로 이미지를 붙여넣으면, 이미지의 글자를 읽어 커서 자리에 넣습니다.</p>
     </fieldset>
 
     <div class="flex items-center gap-3">
@@ -83,6 +84,8 @@
         const input = document.getElementById("posting-ocr-files");
         if (!box || !form || !input) return;
         const names = ["main_tasks", "requirements", "preferred"];
+        const memo = form.elements.memo;
+        const memoUrl = document.getElementById("memo-ocr").dataset.url;
 
         function fill(fields, overwrite) {
             names.forEach(function (name) {
@@ -118,12 +121,25 @@
             });
         }
 
-        function send(files) {
+        // 메모: 읽어 온 글을 커서 자리에 끼워 넣는다. 적어 둔 내용은 지우지 않는다.
+        function insertIntoMemo(text) {
+            if (!text) {
+                Swal.fire({icon: "info", text: "이미지에서 글자를 찾지 못했습니다."});
+                return;
+            }
+            const start = memo.selectionStart, end = memo.selectionEnd;
+            memo.value = memo.value.slice(0, start) + text + memo.value.slice(end);
+            memo.focus();
+            memo.selectionStart = memo.selectionEnd = start + text.length;
+            form.dataset.dirty = "1";
+        }
+
+        function send(files, url, onDone) {
             if (!files.length) return;
             const data = new FormData();
             files.forEach(function (file) { data.append("images", file); });
-            Swal.fire({title: "공고 캡처를 읽는 중…", allowOutsideClick: false, didOpen: function () { Swal.showLoading(); }});
-            fetch(box.dataset.url, {
+            Swal.fire({title: "이미지를 읽는 중…", allowOutsideClick: false, didOpen: function () { Swal.showLoading(); }});
+            fetch(url, {
                 method: "POST",
                 headers: {"X-CSRFToken": form.elements.csrfmiddlewaretoken.value},
                 body: data,
@@ -132,16 +148,20 @@
                 .then(function (body) {
                     Swal.close();
                     if (body.error) Swal.fire({icon: "error", text: body.error});
-                    else apply(body.fields);
+                    else onDone(body);
                 })
                 .catch(function () {
-                    Swal.fire({icon: "error", text: "공고 캡처를 읽지 못했습니다. 다시 시도하세요."});
+                    Swal.fire({icon: "error", text: "이미지를 읽지 못했습니다. 다시 시도하세요."});
                 });
+        }
+
+        function sendPosting(files) {
+            send(files, box.dataset.url, function (body) { apply(body.fields); });
         }
 
         document.getElementById("posting-ocr-pick").addEventListener("click", function () { input.click(); });
         input.addEventListener("change", function () {
-            send(Array.from(input.files));
+            sendPosting(Array.from(input.files));
             input.value = "";
         });
         document.addEventListener("paste", function (event) {
@@ -150,7 +170,12 @@
             });
             if (!images.length) return;  // 글자 붙여넣기는 그대로 둔다
             event.preventDefault();
-            send(images);
+            // 메모 칸을 클릭한 상태면 메모에, 아니면 공고 정보 세 칸에 넣는다.
+            if (document.activeElement === memo) {
+                send(images, memoUrl, function (body) { insertIntoMemo(body.text); });
+            } else {
+                sendPosting(images);
+            }
         });
     })();
 </script>

@@ -43,6 +43,15 @@ POSTING_OCR_SCHEMA = {
     "additionalProperties": False,
 }
 
+MEMO_OCR_SYSTEM = """\
+이미지에 적힌 글자를 그대로 옮겨 적는다.
+
+- 요약하거나 고쳐 쓰거나 설명을 덧붙이지 않는다. 읽은 글자만 답한다.
+- 줄바꿈과 목록 구조는 이미지와 같게 유지한다.
+- 이미지가 여러 장이면 순서대로 이어 적는다.
+- 글자가 없으면 아무것도 적지 않는다.
+"""
+
 ANALYSIS_FIELDS = (
     "company_analysis",
     "fit_evaluation",
@@ -66,6 +75,18 @@ def read_posting_images(user, images):
     except json.JSONDecodeError as error:
         raise ProviderError("읽은 결과를 해석하지 못했습니다. 다시 시도하세요.") from error
     return {name: str(data.get(name, "")).strip() for name in POSTING_FIELDS}
+
+
+def read_memo_images(user, images):
+    """메모 칸에 붙여넣은 이미지((바이트, MIME 타입) 목록)의 글자를 그대로 읽어 돌려준다."""
+    run = run_agent(
+        user,
+        AgentRun.Role.OCR,
+        system=MEMO_OCR_SYSTEM,
+        text="이 이미지의 글자를 옮겨 적어 주세요.",
+        images=images,
+    )
+    return run.output.strip()
 
 
 def generate_analysis(application, guideline_version, *, user, job=None, resume=None):

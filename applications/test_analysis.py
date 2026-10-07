@@ -1,7 +1,10 @@
 from contextlib import contextmanager
 from unittest import mock
 
+from datetime import timedelta
+
 from django.urls import reverse
+from django.utils import timezone
 from langgraph.checkpoint.memory import InMemorySaver
 
 from agents.models import AgentJob, AgentSettings, Provider, Role, Status
@@ -14,16 +17,31 @@ from .analysis_graph import (
     REVISE,
     Draft,
     Evaluation,
+    Judgement,
     Review,
     graph_builder,
     split_company_info,
 )
 from .models import Analysis, Application
+from .scoring import grade_for, score_evaluation
 from .services import generate_analysis, resume_analysis, run_analysis_job, start_analysis
 from .test_views import LoggedInTestCase
 
 RESEARCH_ANSWER = "## 사업\n- 결제 서비스\n\n[기업 정보]\n업종: 핀테크\n규모: 스타트업\n"
 APPROVE = Review(approved=True, issues=[])
+# 필수 (1 + 0.5) / 2 × 50 = 37.5, 우대 없음(배점 제외), 업무 1 × 20 = 20, 기타 20 → 10으로 자름
+# (37.5 + 20 + 10) / 80 × 100 = 84.4 → 84점, 중상
+EVALUATION = Evaluation(
+    requirements=[
+        Judgement(item="Python 3년", verdict="충족", reason="Python 4년"),
+        Judgement(item="AWS 운영", verdict="부분 충족", reason="개인 프로젝트 배포"),
+    ],
+    preferred=[],
+    tasks=[Judgement(item="API 개발", verdict="충족", reason="REST API 개발")],
+    extra_score=20,
+    extra_reason="핀테크 도메인 경험",
+    summary="요건 대부분 충족",
+)
 REJECT = Review(approved=False, issues=["규칙 위반"])
 
 
@@ -42,7 +60,7 @@ class FakeAgents:
         if role == Role.RESEARCH:
             return RESEARCH_ANSWER
         if role == Role.EVALUATE:
-            return Evaluation(fit_evaluation="요건 대부분 충족", fit_score=130, fit_grade="중상")
+            return EVALUATION
         if role == Role.WRITE:
             number = self.roles.count(Role.WRITE)
             return Draft(motivation_draft=f"초안 {number}", title_candidates=["제목 A", " 제목 B "])
@@ -93,8 +111,17 @@ class AnalysisGraphTests(LoggedInTestCase):
         self.assertEqual(analysis.title_candidates, "제목 A\n제목 B")
         self.assertEqual(analysis.review_notes, "")
         self.application.refresh_from_db()
-        # 점수는 0~100으로 자르고, 등급은 라벨을 저장 값으로 바꾼다.
-        self.assertEqual((self.application.fit_score, self.application.fit_grade), (100, "mid_high"))
+        # 점수와 등급은 AI가 아니라 scoring.py 가 판정으로 계산한다.
+        self.assertEqual((self.application.fit_score, self.application.fit_grade), (84, "mid_high"))
+        for expected in (
+            "총점 84점 · 등급 중상 (배점 80점 만점을 100점으로 환산)",
+            "[필수 자격 요건] 37.5 / 50",
+            "- 부분 충족 · AWS 운영: 개인 프로젝트 배포",
+            "[우대 사항] 공고에 없음 (배점 제외)",
+            "[기타] 10 / 10: 핀테크 도메인 경험",
+            "[종합]\n요건 대부분 충족",
+        ):
+            self.assertIn(expected, analysis.fit_evaluation)
         company = self.application.company
         company.refresh_from_db()
         self.assertEqual((company.industry, company.size), ("핀테크", "startup"))
@@ -125,9 +152,10 @@ class AnalysisGraphTests(LoggedInTestCase):
     def test_failure_keeps_results_so_far(self):
         analysis, error, waiting = self.run_graph(FakeAgents(fail_on=Role.WRITE))
         self.assertEqual((error, waiting), ("한도 초과", False))
-        self.assertEqual((analysis.fit_evaluation, analysis.motivation_draft), ("요건 대부분 충족", ""))
+        self.assertIn("요건 대부분 충족", analysis.fit_evaluation)
+        self.assertEqual(analysis.motivation_draft, "")
         self.application.refresh_from_db()
-        self.assertEqual(self.application.fit_score, 100)
+        self.assertEqual(self.application.fit_score, 84)
 
     def test_failure_at_first_step_saves_nothing(self):
         analysis, error, _ = self.run_graph(FakeAgents(fail_on=Role.RESEARCH))
@@ -151,6 +179,28 @@ class AnalysisGraphTests(LoggedInTestCase):
             for marker in ("프로필 본문", "규칙 본문", "기업명: 핀테크사", "결제 서비스", "Python 3년")
         ]
         self.assertEqual(positions, sorted(positions))
+
+    def test_grade_cutoffs(self):
+        grades = {score: grade_for(score) for score in (100, 90, 89, 80, 79, 70, 69, 60, 59, 0)}
+        self.assertEqual(
+            grades,
+            {100: "high", 90: "high", 89: "mid_high", 80: "mid_high", 79: "mid",
+             70: "mid", 69: "mid_low", 60: "mid_low", 59: "low", 0: "low"},
+        )
+
+    def test_score_uses_all_sections_when_present(self):
+        judge = lambda verdict: Judgement(item="항목", verdict=verdict, reason="근거")  # noqa: E731
+        evaluation = Evaluation(
+            requirements=[judge("충족"), judge("미충족")],  # 25 / 50
+            preferred=[judge("부분 충족")],  # 10 / 20
+            tasks=[judge("충족"), judge("충족")],  # 20 / 20
+            extra_score=-3,  # 0으로 자름
+            extra_reason="근거 없음",
+            summary="종합",
+        )
+        score, grade, text = score_evaluation(evaluation)
+        self.assertEqual((score, grade), (55, "low"))
+        self.assertTrue(text.startswith("총점 55점 · 등급 하\n"))
 
     def test_split_company_info(self):
         self.assertEqual(split_company_info(RESEARCH_ANSWER), ("## 사업\n- 결제 서비스", "핀테크", "startup"))
@@ -307,6 +357,26 @@ class AnalysisJobTests(LoggedInTestCase):
         self.assertNotContains(response, "에이전트로 분석</button>")
         application.agent_jobs.get().finish("한도 초과")
         self.assertContains(self.client.get(url), "최근 에이전트 분석이 실패했습니다: 한도 초과")
+
+    def test_dashboard_marks_and_filters_waiting_applications(self):
+        waiting = self.make_application("아주 긴 이름의 기다리는 기업")
+        other = self.make_application("다른기업")
+        AgentJob.objects.create(user=self.user, application=waiting, status=Status.WAITING)
+        AgentJob.objects.create(user=self.user, application=other, status=Status.SUCCEEDED)
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.context["stats"]["waiting"], 1)
+        flags = {a.pk: a.is_waiting for a in response.context["applications"]}
+        self.assertEqual(flags, {waiting.pk: True, other.pk: False})
+        # 행은 칠하지 않고 배지 색으로만 구분한다: 마감 여유가 있으면 노랑, 7일 이내면 빨강.
+        self.assertContains(response, 'class="cursor-pointer hover:bg-gray-50"', count=2)
+        self.assertContains(response, 'bg-yellow-100 font-medium text-yellow-900">확인 대기</span>', count=1)
+        waiting.deadline = timezone.localdate() + timedelta(days=7)
+        waiting.save()
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, 'bg-red-200 font-bold text-black">확인 대기</span>', count=1)
+        response = self.client.get(reverse("home"), {"waiting": "1"})
+        self.assertEqual(list(response.context["applications"]), [waiting])
+        self.assertContains(response, "필터 해제")
 
     @mock.patch("applications.services.threading.Thread")
     def test_detail_asks_human_and_resumes(self, thread):
