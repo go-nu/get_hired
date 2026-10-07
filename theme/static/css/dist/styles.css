@@ -778,6 +778,9 @@
     .hover\:bg-red-50:hover {
       background-color: var(--color-red-50);
     }
+    .hover\:bg-red-100:hover {
+      background-color: var(--color-red-100);
+    }
     .hover\:bg-yellow-100:hover {
       background-color: var(--color-yellow-100);
     }
@@ -810,6 +813,9 @@
   .focus\:outline-none:focus {
     --tw-outline-style: none;
     outline-style: none;
+  }
+  .disabled\:opacity-60:disabled {
+    opacity: 60%;
   }
   @media (width >= 40rem) {
     .sm\:grid-cols-2 {

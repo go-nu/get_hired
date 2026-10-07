@@ -5,13 +5,13 @@ from .models import GuidelineVersion
 
 @admin.register(GuidelineVersion)
 class GuidelineVersionAdmin(admin.ModelAdmin):
-    list_display = ("version", "note", "is_active", "created_at")
-    list_filter = ("is_active",)
+    list_display = ("version", "note", "is_active", "privacy_checked", "created_at")
+    list_filter = ("is_active", "privacy_checked")
     search_fields = ("note",)
-    readonly_fields = ("version", "created_at")
+    readonly_fields = ("version", "created_at", "privacy_checked")
     actions = ["make_active"]
     fieldsets = (
-        (None, {"fields": ("version", "note", "is_active", "created_at")}),
+        (None, {"fields": ("version", "note", "is_active", "privacy_checked", "created_at")}),
         ("섹션", {"fields": GuidelineVersion.SECTION_FIELDS}),
     )
 

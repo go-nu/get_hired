@@ -86,6 +86,8 @@ class Role(models.TextChoices):
     EVALUATE = "evaluate", "적합도 평가"
     WRITE = "write", "지원동기 작성"
     REVIEW = "review", "검수"
+    # 프로필·지침을 저장할 때 (profiles/services.py)
+    PRIVACY = "privacy", "개인정보 점검"
 
 
 class Status(models.TextChoices):

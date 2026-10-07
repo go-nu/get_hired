@@ -9,6 +9,7 @@ from django.views.generic import CreateView, DetailView, ListView, TemplateView
 from .diff import compare_versions
 from .forms import GuidelineVersionForm
 from .models import GuidelineVersion
+from .services import check_privacy, sections_of
 
 
 class ActiveVersionView(LoginRequiredMixin, TemplateView):
@@ -63,9 +64,20 @@ class VersionCreateView(LoginRequiredMixin, SuccessMessageMixin, CreateView):
         context["base_version"] = self.get_base_version()
         return context
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["user"] = self.request.user  # 개인정보 점검의 AI 호출 기록에 남는다
+        return kwargs
+
     def form_valid(self, form):
         form.instance.is_active = True
-        return super().form_valid(form)
+        response = super().form_valid(form)
+        if form.privacy_warning:
+            messages.warning(
+                self.request,
+                f"개인정보 점검을 하지 못한 채 저장했습니다. ({form.privacy_warning})",
+            )
+        return response
 
     def get_success_message(self, cleaned_data):
         return self.success_message % {"version": self.object.version}
@@ -74,6 +86,24 @@ class VersionCreateView(LoginRequiredMixin, SuccessMessageMixin, CreateView):
 class VersionActivateView(LoginRequiredMixin, View):
     def post(self, request, version):
         target = get_object_or_404(GuidelineVersion, version=version)
+        # 점검을 거치지 않은 버전(이 기능 이전에 만든 것 등)은 활성으로 지정할 때 점검한다.
+        if not target.privacy_checked:
+            result = check_privacy(request.user, sections_of(target))
+            if result.resident_fields or result.findings:
+                # 어느 부분인지는 새로 작성 화면에서 저장할 때 칸마다 보여 준다.
+                messages.error(
+                    request,
+                    f"{target} 에 개인정보로 보이는 내용이 있어 활성으로 지정하지 않았습니다. "
+                    "[이 내용으로 새로 작성]에서 고쳐 저장하세요.",
+                )
+                return redirect("profiles:detail", version=target.version)
+            if result.error:
+                messages.warning(
+                    request, f"개인정보 점검을 하지 못한 채 지정했습니다. ({result.error})"
+                )
+            else:
+                target.privacy_checked = True
+                target.save(update_fields=["privacy_checked"])
         target.activate()
         messages.success(request, f"{target} 을(를) 활성 버전으로 지정했습니다.")
         return redirect("profiles:list")

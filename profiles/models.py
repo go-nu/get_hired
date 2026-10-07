@@ -9,6 +9,9 @@ class GuidelineVersion(models.Model):
     note = models.CharField("변경 메모", max_length=200, blank=True)
     is_active = models.BooleanField("활성", default=False)
     created_at = models.DateTimeField("생성일시", auto_now_add=True)
+    # 개인정보 점검을 통과했거나, 지적을 사용자가 확인하고 저장한 버전이면 True.
+    # 점검하지 못한 채 저장한 버전과 이 기능 이전의 버전은 False 이고, 활성으로 지정할 때 점검한다.
+    privacy_checked = models.BooleanField("개인정보 점검 완료", default=False, editable=False)
 
     profile = models.TextField("고정 정보", blank=True)
     writing_rules = models.TextField("작성 규칙", blank=True)

@@ -12,7 +12,16 @@
 
 <form method="post" id="profile-form" class="space-y-5"{% if form.is_bound %} data-dirty="1"{% endif %}>
     {% csrf_token %}
-    {{ form.non_field_errors }}
+    {% for error in form.non_field_errors %}
+    <p class="text-sm text-red-600">{{ error }}</p>
+    {% endfor %}
+    {% if form.privacy_findings %}
+    <div class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm">
+        <p class="font-semibold text-red-800">개인정보로 보이는 내용이 {{ form.privacy_findings|length }}건 있어 저장하지 않았습니다.</p>
+        <p class="mt-1 text-red-700">지원 서류에 적으면 안 되는 항목입니다. 아래 표시된 부분을 지우고 다시 저장하세요. 잘못 짚은 것이라면 그대로 저장할 수 있습니다.</p>
+        <button type="button" id="privacy-override" data-confirm-value="{{ form.privacy_confirm }}" class="mt-3 rounded-md border border-red-300 bg-white px-3 py-1.5 font-medium text-red-700 hover:bg-red-100">그래도 저장</button>
+    </div>
+    {% endif %}
     {% for field in form %}
     <div>
         <label for="{{ field.id_for_label }}" class="mb-1 block text-sm font-medium">{{ field.label }}</label>
@@ -24,7 +33,7 @@
     {% endfor %}
 
     <div class="flex items-center gap-3">
-        <button type="submit" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">저장</button>
+        <button type="submit" id="profile-save" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60">저장</button>
         <a href="{% url 'profiles:active' %}" class="text-sm text-gray-600 hover:text-gray-900">취소</a>
     </div>
 </form>
@@ -52,6 +61,38 @@
                 if (result.dismiss === Swal.DismissReason.cancel) {
                     window.location.href = link.href;
                 }
+            });
+        });
+    })();
+
+    // 저장하면 개인정보 점검(AI 호출)에 몇 초가 걸리므로 그동안 버튼을 잠근다.
+    (function () {
+        const form = document.getElementById("profile-form");
+        const save = document.getElementById("profile-save");
+        form.addEventListener("submit", function () {
+            save.disabled = true;
+            save.textContent = "개인정보 점검 중…";
+        });
+
+        // [그래도 저장]: 지적을 확인했다는 값을 함께 보내 점검 없이 저장한다.
+        const override = document.getElementById("privacy-override");
+        if (!override) return;
+        override.addEventListener("click", function () {
+            Swal.fire({
+                title: "그대로 저장할까요?",
+                text: "표시된 내용이 개인정보가 아니라고 확인한 경우에만 저장하세요. 저장한 내용은 에이전트가 그대로 읽습니다.",
+                icon: "warning",
+                showCancelButton: true,
+                confirmButtonText: "그래도 저장",
+                cancelButtonText: "취소",
+            }).then(function (result) {
+                if (!result.isConfirmed) return;
+                const input = document.createElement("input");
+                input.type = "hidden";
+                input.name = "privacy_confirm";
+                input.value = override.dataset.confirmValue;
+                form.appendChild(input);
+                form.requestSubmit();
             });
         });
     })();

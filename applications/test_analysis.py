@@ -15,6 +15,7 @@ from profiles.models import GuidelineVersion
 
 from . import prompts
 from agents.skills import list_skills, load_skill
+from profiles.services import PRIVACY_SKILL
 
 from .analysis_graph import (
     SKILL_BY_ROLE,
@@ -212,7 +213,8 @@ class AnalysisGraphTests(LoggedInTestCase):
     def test_every_skill_file_loads_and_renders(self):
         skills = list_skills()
         self.assertEqual(
-            sorted(skill.name for skill in skills), sorted(SKILL_BY_ROLE.values())
+            sorted(skill.name for skill in skills),
+            sorted([*SKILL_BY_ROLE.values(), PRIVACY_SKILL]),  # 분석 그래프 + 프로필 점검
         )
         for skill in skills:
             self.assertTrue(skill.description)
