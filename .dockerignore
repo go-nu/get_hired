@@ -1,0 +1,10 @@
+.git
+.env
+.venv
+.vscode
+.idea
+__pycache__
+*.pyc
+node_modules
+theme/static_src/node_modules
+CLAUDE.md
