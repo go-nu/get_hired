@@ -34,6 +34,29 @@
         <button type="submit" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">저장</button>
     </form>
 
+    <div class="space-y-4">
+    <section class="rounded-lg border border-gray-200 bg-white">
+        <h2 class="border-b border-gray-200 px-4 py-2 text-sm font-semibold">디스코드 알림 보내기</h2>
+        {% if has_discord_webhook %}
+        <ul class="divide-y divide-gray-100">
+            {% for alert in discord_alerts %}
+            <li class="flex items-center gap-3 px-4 py-2">
+                <div class="min-w-0 flex-1">
+                    <p class="text-sm font-medium">{{ alert.label }}</p>
+                    <p class="text-xs text-gray-500">{{ alert.help }}</p>
+                </div>
+                <form method="post" action="{% url 'agents:discord_send' alert.kind %}">
+                    {% csrf_token %}
+                    <button type="submit" class="whitespace-nowrap rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm hover:bg-gray-50">보내기</button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="px-4 py-3 text-sm text-gray-500">디스코드 웹훅 주소를 저장하면 여기서 알림을 직접 보낼 수 있습니다.</p>
+        {% endif %}
+    </section>
+
     <section class="rounded-lg border border-gray-200 bg-white">
         <h2 class="border-b border-gray-200 px-4 py-2 text-sm font-semibold">토큰 사용량</h2>
         <table class="w-full text-left text-sm">
@@ -68,5 +91,6 @@
             실패한 실행은 토큰이 0으로 잡힙니다. 실행별 내역은 <a href="{% url 'agents:run_list' %}" class="text-indigo-600 hover:underline">관리자</a> 페이지에서 봅니다.
         </p>
     </section>
+    </div>
 </div>
 {% endblock %}

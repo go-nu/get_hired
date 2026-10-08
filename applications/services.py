@@ -230,6 +230,17 @@ def run_analysis_job(job_id, resume=None):
 
 def notify_job_result(job):
     """분석 작업이 멈추거나 끝났을 때 디스코드로 알린다. 알림이 실패해도 작업 결과는 그대로다."""
+    try:
+        notify_user(job.user, job_result_text(job))
+    except Exception:  # 알림 때문에 스레드가 죽지 않게 한다
+        logger.exception("디스코드 알림 중 오류")
+
+
+# 아래 *_text 함수는 알림에 보낼 글을 만든다. 자동 알림과 사용자 페이지의 [보내기] 버튼이 함께 쓴다.
+
+
+def job_result_text(job):
+    """분석 작업의 결과(완료·실패·확인 대기) 알림 글."""
     application = Application.objects.select_related("company").get(pk=job.application_id)
     if job.is_waiting:
         headline = "[확인 대기] 검수 지적이 남아 에이전트가 답을 기다립니다."
@@ -242,10 +253,47 @@ def notify_job_result(job):
         )
     else:
         headline = "[분석 완료] 기업 조사를 마쳤습니다."
-    try:
-        notify_user(job.user, f"{headline}\n{application}\n{application_link(application)}")
-    except Exception:  # 알림 때문에 스레드가 죽지 않게 한다
-        logger.exception("디스코드 알림 중 오류")
+    return f"{headline}\n{application}\n{application_link(application)}"
+
+
+def latest_job_result_text(user):
+    """가장 최근에 끝났거나 멈춘 분석 작업의 알림 글. 없으면 빈 문자열."""
+    job = (
+        AgentJob.objects.filter(user=user, application__in=Application.objects.visible())
+        .exclude(status=Status.RUNNING)
+        .order_by("-updated_at")
+        .first()
+    )
+    return job_result_text(job) if job else ""
+
+
+def waiting_alert_text(user):
+    """에이전트가 사람의 답을 기다리는 건 목록. 없으면 빈 문자열."""
+    jobs = (
+        AgentJob.objects.filter(
+            user=user, status=Status.WAITING, application__in=Application.objects.visible()
+        )
+        .select_related("application__company")
+        .order_by("updated_at")
+    )
+    if not jobs:
+        return ""
+    lines = [f"[확인 대기] 에이전트가 답을 기다리는 {len(jobs)}건"]
+    lines += [f"- {job.application} · {application_link(job.application)}" for job in jobs]
+    return "\n".join(lines)
+
+
+def deadline_alert_text():
+    """마감이 임박한 미지원 건 목록. 없으면 빈 문자열."""
+    applications = urgent_applications()
+    if not applications:
+        return ""
+    lines = [f"[마감 임박] 아직 지원하지 않은 {len(applications)}건"]
+    lines += [
+        f"- {application.d_day_label} · {application} · {application_link(application)}"
+        for application in applications
+    ]
+    return "\n".join(lines)
 
 
 def urgent_applications():

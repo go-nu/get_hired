@@ -1,15 +1,17 @@
 import json
 import urllib.error
+from datetime import timedelta
 from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from applications.test_views import LoggedInTestCase
 
 from .crypto import decrypt, encrypt
-from .models import AgentRun, AgentSettings, Provider
+from .models import AgentJob, AgentRun, AgentSettings, Provider, Status
 from .notify import notify_user, send_discord
 from .providers import Completion, ProviderError, complete
 from .services import run_agent
@@ -127,6 +129,51 @@ class DiscordTests(LoggedInTestCase):
         self.client.post(self.url, {**self.form_data, "clear_discord_webhook": "on"})
         self.assertFalse(notify_user(self.user, "알림"))
         self.assertEqual(urlopen.call_count, 2)  # 시험 알림 1 + 알림 1
+
+    def send(self, kind):
+        return self.client.post(reverse("agents:discord_send", args=[kind]), follow=True)
+
+    def sent_text(self, urlopen):
+        return json.loads(urlopen.call_args.args[0].data)["content"]
+
+    @mock.patch("agents.notify.urllib.request.urlopen")
+    def test_send_buttons_need_a_webhook_and_something_to_send(self, urlopen):
+        self.assertNotContains(self.client.get(self.url), "discord/deadline/")
+        self.assertContains(self.send("test"), "웹훅 주소를 먼저 저장하세요")
+        settings = AgentSettings.for_user(self.user)
+        settings.set_discord_webhook(WEBHOOK)
+        settings.save()
+        response = self.client.get(self.url)
+        for kind in ("test", "analysis", "waiting", "deadline"):
+            self.assertContains(response, f"discord/{kind}/")
+        # 보낼 것이 없으면 보내지 않고 알려 준다.
+        self.assertContains(self.send("analysis"), "아직 끝난 분석 작업이 없습니다")
+        self.assertContains(self.send("waiting"), "확인 대기인 건이 없습니다")
+        self.assertContains(self.send("deadline"), "마감이 임박한 미지원 건이 없습니다")
+        urlopen.assert_not_called()
+        self.assertEqual(self.send("unknown").status_code, 404)
+        self.assertEqual(self.client.get(reverse("agents:discord_send", args=["test"])).status_code, 405)
+
+    @mock.patch("agents.notify.urllib.request.urlopen")
+    def test_send_buttons_send_each_kind_of_alert(self, urlopen):
+        settings = AgentSettings.for_user(self.user)
+        settings.set_discord_webhook(WEBHOOK)
+        settings.save()
+        today = timezone.localdate()
+        urgent = self.make_application("임박기업", deadline=today + timedelta(days=2))
+        scored = self.make_application("완료기업", fit_score=81, fit_grade="mid_high")
+        AgentJob.objects.create(user=self.user, application=scored, status=Status.SUCCEEDED)
+        AgentJob.objects.create(user=self.user, application=urgent, status=Status.WAITING)
+
+        self.assertContains(self.send("test"), "디스코드로 보냈습니다: 연결 시험")
+        self.assertIn("시험 알림", self.sent_text(urlopen))
+        self.send("analysis")  # 가장 최근에 멈춘 작업은 확인 대기
+        self.assertIn("[확인 대기] 검수 지적이 남아", self.sent_text(urlopen))
+        self.send("waiting")
+        self.assertIn("[확인 대기] 에이전트가 답을 기다리는 1건\n- 임박기업", self.sent_text(urlopen))
+        self.send("deadline")
+        self.assertIn("[마감 임박] 아직 지원하지 않은 1건\n- D-2 · 임박기업", self.sent_text(urlopen))
+        self.assertEqual(urlopen.call_count, 4)
 
 
 class RunAgentTests(LoggedInTestCase):
