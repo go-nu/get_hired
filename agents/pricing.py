@@ -2,6 +2,7 @@
 
 단가는 100만 토큰당 미국 달러 (입력, 출력), 2026년 10월 기준. 요금이 바뀌거나 새 모델을
 쓰면 여기를 고친다. 웹 검색 요금과 캐시·배치 할인은 반영하지 않는 어림값이다.
+원화는 고정 환율(KRW_PER_USD)로 바꾼 값이라, 환율이 많이 움직이면 함께 고친다.
 """
 
 from decimal import Decimal
@@ -16,6 +17,7 @@ PRICES = {
 }
 
 MILLION = Decimal(1_000_000)
+KRW_PER_USD = Decimal(1340)  # 2026-10-08 기준 1달러 ≈ 1,339원
 
 
 def estimate_cost(model, input_tokens, output_tokens):
@@ -24,6 +26,11 @@ def estimate_cost(model, input_tokens, output_tokens):
         return None
     input_price, output_price = map(Decimal, PRICES[model])
     return (input_tokens * input_price + output_tokens * output_price) / MILLION
+
+
+def to_krw(usd):
+    """달러를 원으로. None 이면 None."""
+    return None if usd is None else usd * KRW_PER_USD
 
 
 def cost_rows(runs):
@@ -36,5 +43,6 @@ def cost_rows(runs):
     )
     for row in rows:
         row["cost"] = estimate_cost(row["model"], row["input"], row["output"])
+        row["cost_krw"] = to_krw(row["cost"])
     total = sum((row["cost"] for row in rows if row["cost"] is not None), Decimal(0))
     return rows, total

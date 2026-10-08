@@ -29,8 +29,8 @@
 <div class="mb-4 rounded-lg border border-gray-200 bg-white">
     <div class="flex flex-wrap items-baseline gap-2 border-b border-gray-200 px-4 py-2">
         <h2 class="text-sm font-semibold">모델별 예상 비용</h2>
-        <span class="text-xs text-gray-500">위에서 고른 역할·상태의 전체 기록 기준 · 토큰 단가로 계산한 어림값 (웹 검색 요금 제외)</span>
-        <span class="ml-auto text-sm font-semibold">합계 ${{ cost_total|floatformat:4 }}</span>
+        <span class="text-xs text-gray-500">위에서 고른 역할·상태의 전체 기록 기준 · 토큰 단가로 계산한 어림값 (웹 검색 요금 제외) · 1달러 = {{ krw_per_usd|intcomma }}원으로 환산</span>
+        <span class="ml-auto text-sm font-semibold">합계 ${{ cost_total|floatformat:4 }} · {{ cost_total_krw|floatformat:"0g" }}원</span>
     </div>
     <table class="w-full text-left text-sm">
         <thead class="border-b border-gray-200 bg-gray-50 text-xs text-gray-500">
@@ -39,7 +39,8 @@
                 <th class="px-4 py-2 text-right font-medium">실행</th>
                 <th class="px-4 py-2 text-right font-medium">입력 토큰</th>
                 <th class="px-4 py-2 text-right font-medium">출력 토큰</th>
-                <th class="px-4 py-2 text-right font-medium">예상 비용</th>
+                <th class="px-4 py-2 text-right font-medium">예상 비용(USD)</th>
+                <th class="px-4 py-2 text-right font-medium">예상 비용(KRW)</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
@@ -50,6 +51,7 @@
                 <td class="px-4 py-2 text-right">{{ row.input|intcomma }}</td>
                 <td class="px-4 py-2 text-right">{{ row.output|intcomma }}</td>
                 <td class="px-4 py-2 text-right">{% if row.cost is None %}<span class="text-gray-400">단가 미등록</span>{% else %}${{ row.cost|floatformat:4 }}{% endif %}</td>
+                <td class="px-4 py-2 text-right">{% if row.cost_krw is None %}<span class="text-gray-400">-</span>{% else %}{{ row.cost_krw|floatformat:"0g" }}원{% endif %}</td>
             </tr>
             {% endfor %}
         </tbody>

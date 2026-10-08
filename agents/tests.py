@@ -13,6 +13,7 @@ from applications.test_views import LoggedInTestCase
 from .crypto import decrypt, encrypt
 from .models import AgentJob, AgentRun, AgentSettings, Provider, Status
 from .notify import notify_user, send_discord
+from .pricing import KRW_PER_USD
 from .providers import Completion, ProviderError, complete
 from .services import run_agent
 
@@ -241,6 +242,10 @@ class RunPagesTests(LoggedInTestCase):
         self.assertEqual(rows["claude-opus-5-5"]["cost"], 8)
         self.assertIsNone(rows["new-model"]["cost"])
         self.assertEqual(response.context["cost_total"], 8)
+        self.assertEqual(rows["claude-opus-5-5"]["cost_krw"], 8 * KRW_PER_USD)
+        self.assertIsNone(rows["new-model"]["cost_krw"])
+        self.assertEqual(response.context["cost_total_krw"], 8 * KRW_PER_USD)
+        self.assertContains(response, "10,720원")
         self.assertContains(response, "단가 미등록")
         response = self.client.get(reverse("agents:run_list"), {"role": "review"})
         self.assertEqual(response.context["cost_total"], 2)

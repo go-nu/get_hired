@@ -19,7 +19,7 @@ from applications.views import PageLinksMixin
 from .forms import AgentSettingsForm
 from .models import AgentRun, AgentSettings, Provider
 from .notify import send_discord
-from .pricing import cost_rows
+from .pricing import KRW_PER_USD, cost_rows, to_krw
 
 
 def usage_rows(user):
@@ -157,6 +157,8 @@ class AgentRunListView(LoginRequiredMixin, PageLinksMixin, ListView):
         context = super().get_context_data(**kwargs)
         # 예상 비용은 페이지가 아니라 지금 필터에 걸린 전체 기록으로 계산한다.
         context["cost_rows"], context["cost_total"] = cost_rows(self.object_list)
+        context["cost_total_krw"] = to_krw(context["cost_total"])
+        context["krw_per_usd"] = KRW_PER_USD
         context.update(
             statuses=AgentRun.Status.choices,
             roles=AgentRun.Role.choices,
