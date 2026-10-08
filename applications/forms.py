@@ -85,6 +85,33 @@ class StageForm(StyledModelForm):
         fields = ["stage", "result"]
 
 
+class GuidelineChoiceField(forms.ModelChoiceField):
+    def label_from_instance(self, guideline):
+        return f"{guideline} (활성)" if guideline.is_active else str(guideline)
+
+
+class AnalysisRunForm(forms.Form):
+    """상세 화면의 [에이전트로 분석] 옆에서 분석에 쓸 지침 버전을 고른다. 기본은 활성 버전."""
+
+    guideline_version = GuidelineChoiceField(
+        label="지침 버전",
+        required=False,
+        queryset=GuidelineVersion.objects.order_by("-version"),
+        empty_label="지침 없음 (기업 조사만)",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        field = self.fields["guideline_version"]
+        field.initial = GuidelineVersion.get_active()
+        field.widget.attrs.update(
+            {
+                "class": "rounded-md border border-gray-300 bg-white px-2 py-1 text-sm",
+                "aria-label": field.label,
+            }
+        )
+
+
 class AnalysisForm(StyledModelForm):
     class Meta:
         model = Analysis

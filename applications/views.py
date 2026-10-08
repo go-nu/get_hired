@@ -23,6 +23,7 @@ from agents.providers import ProviderError
 
 from .forms import (
     AnalysisForm,
+    AnalysisRunForm,
     ApplicationForm,
     CompanyForm,
     DashboardFilterForm,
@@ -252,8 +253,8 @@ class ApplicationCreateView(LoginRequiredMixin, SuccessMessageMixin, CreateView)
         return response
 
 
-def notify_analysis_start(request, application):
-    job, reason = start_analysis(application, request.user)
+def notify_analysis_start(request, application, **kwargs):
+    job, reason = start_analysis(application, request.user, **kwargs)
     if job:
         messages.info(request, "에이전트가 분석을 시작했습니다. 끝나면 이 화면에 결과가 나옵니다.")
     else:
@@ -278,11 +279,19 @@ class AnalysisResumeView(LoginRequiredMixin, View):
 
 
 class AnalysisRunView(LoginRequiredMixin, View):
-    """상세 화면의 [에이전트로 분석]: 분석 그래프를 다시 돌린다."""
+    """상세 화면의 [에이전트로 분석]: 고른 지침 버전으로 분석 그래프를 다시 돌린다."""
 
     def post(self, request, pk):
         application = get_object_or_404(Application, pk=pk)
-        notify_analysis_start(request, application)
+        form = AnalysisRunForm(request.POST)
+        if "guideline_version" not in request.POST:  # 고르지 않고 보낸 요청은 적힌 버전 그대로
+            notify_analysis_start(request, application)
+        elif not form.is_valid():
+            messages.warning(request, "지침 버전을 다시 골라 주세요.")
+        else:
+            notify_analysis_start(
+                request, application, guideline_version=form.cleaned_data["guideline_version"]
+            )
         return redirect("applications:detail", pk=pk)
 
 
@@ -352,6 +361,7 @@ class ApplicationDetailView(LoginRequiredMixin, DetailView):
         AgentJob.expire_stale()
         context["agent_job"] = self.object.agent_jobs.first()  # 가장 최근 분석 작업
         context["human_actions"] = {"accept": ACCEPT, "revise": REVISE}
+        context["analysis_run_form"] = AnalysisRunForm()
         analyses = list(self.object.analyses.all())  # 최신순
         selected_id = self.request.GET.get("analysis")
         analysis = next(

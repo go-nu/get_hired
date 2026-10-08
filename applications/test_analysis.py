@@ -452,6 +452,47 @@ class AnalysisJobTests(LoggedInTestCase):
         application.agent_jobs.get().finish("한도 초과")
         self.assertContains(self.client.get(url), "최근 에이전트 분석이 실패했습니다: 한도 초과")
 
+    @mock.patch("applications.services.threading.Thread")
+    def test_detail_runs_analysis_with_chosen_guideline_version(self, thread):
+        self.give_api_key()
+        old = GuidelineVersion.objects.create(profile="옛 프로필")
+        active = GuidelineVersion.objects.create(profile="새 프로필", is_active=True)
+        application = self.make_application()
+        application.guideline_version = old
+        application.save()
+        run_url = reverse("applications:analysis_run", args=[application.pk])
+        # 고르는 칸은 활성 버전이 기본으로 선택돼 있다.
+        response = self.client.get(reverse("applications:detail", args=[application.pk]))
+        self.assertContains(
+            response, f'<option value="{active.pk}" selected>{active} (활성)</option>', html=True
+        )
+
+        self.client.post(run_url, {"guideline_version": active.pk})
+        application.refresh_from_db()
+        self.assertEqual(application.guideline_version, active)
+
+        # 옛 버전을 골라 다시 돌릴 수도 있고, 비우면 기업 조사만 한다.
+        for chosen, expected in ((old.pk, old), ("", None)):
+            application.agent_jobs.get(status=Status.RUNNING).finish("")
+            self.client.post(run_url, {"guideline_version": chosen})
+            application.refresh_from_db()
+            self.assertEqual(application.guideline_version, expected)
+        self.assertEqual(application.agent_jobs.count(), 3)
+
+    def test_guideline_version_is_kept_when_analysis_cannot_start(self):
+        old = GuidelineVersion.objects.create(profile="옛 프로필")
+        active = GuidelineVersion.objects.create(profile="새 프로필", is_active=True)
+        application = self.make_application()
+        application.guideline_version = old
+        application.save()
+        # API 키가 없어 시작하지 못하면 지원 건의 지침 버전도 바꾸지 않는다.
+        self.client.post(
+            reverse("applications:analysis_run", args=[application.pk]),
+            {"guideline_version": active.pk},
+        )
+        application.refresh_from_db()
+        self.assertEqual(application.guideline_version, old)
+
     def test_dashboard_marks_and_filters_waiting_applications(self):
         waiting = self.make_application("아주 긴 이름의 기다리는 기업")
         other = self.make_application("다른기업")

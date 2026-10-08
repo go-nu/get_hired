@@ -170,8 +170,14 @@ def _run_in_background(job, resume=None):
     )
 
 
-def start_analysis(application, user):
-    """분석을 백그라운드로 시작하고 (AgentJob, 시작하지 못한 이유)를 돌려준다."""
+KEEP_GUIDELINE = object()  # start_analysis: 지원 건에 적힌 지침 버전을 그대로 쓴다
+
+
+def start_analysis(application, user, guideline_version=KEEP_GUIDELINE):
+    """분석을 백그라운드로 시작하고 (AgentJob, 시작하지 못한 이유)를 돌려준다.
+
+    guideline_version 을 주면 지원 건의 지침 버전을 그것으로 바꾸고 분석한다. (None 이면 기업 조사만)
+    """
     if not AgentSettings.for_user(user).get_api_key():
         return None, "API 키가 없어 에이전트 분석을 시작하지 못했습니다. 사용자 페이지에서 입력하세요."
     AgentJob.expire_stale()
@@ -180,6 +186,9 @@ def start_analysis(application, user):
         if active.status == Status.WAITING:
             return None, "에이전트가 확인을 기다리고 있습니다. 먼저 답해 주세요."
         return None, "이 지원 건은 이미 에이전트가 분석하고 있습니다."
+    if guideline_version is not KEEP_GUIDELINE and guideline_version != application.guideline_version:
+        application.guideline_version = guideline_version
+        application.save(update_fields=["guideline_version", "updated_at"])
     job = AgentJob.objects.create(user=user, application=application)
     _run_in_background(job)
     return job, ""

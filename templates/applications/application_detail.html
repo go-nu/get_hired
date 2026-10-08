@@ -68,8 +68,10 @@
                 {% endif %}
                 <div class="ml-auto flex items-center gap-2">
                     {% if not agent_job.is_running and not agent_job.is_waiting %}
-                    <form method="post" action="{% url 'applications:analysis_run' application.pk %}" data-confirm="에이전트로 분석을 실행할까요? 토큰이 사용됩니다.">
+                    <form method="post" action="{% url 'applications:analysis_run' application.pk %}" data-confirm="에이전트로 분석을 실행할까요? 토큰이 사용됩니다." class="flex items-center gap-2">
                         {% csrf_token %}
+                        {# 분석에 쓸 지침 버전. 기본은 활성 버전이고, 고른 버전이 이 지원 건에 기록된다. #}
+                        {{ analysis_run_form.guideline_version }}
                         <button type="submit" class="rounded-md bg-indigo-600 px-3 py-1 text-sm font-medium text-white hover:bg-indigo-700">에이전트로 분석</button>
                     </form>
                     {% endif %}
@@ -156,7 +158,7 @@
                 <div class="flex justify-between"><dt class="text-gray-500">점수</dt><dd>{% if application.fit_score is not None %}{{ application.fit_score }}점{% else %}-{% endif %}</dd></div>
                 <div class="flex justify-between"><dt class="text-gray-500">등급</dt><dd>{{ application.get_fit_grade_display|default:"-" }}</dd></div>
                 <div class="flex justify-between">
-                    <dt class="text-gray-500">지침 버전</dt>
+                    <dt class="text-gray-500">분석에 쓴 지침</dt>
                     <dd>{% if application.guideline_version %}<a href="{% url 'profiles:detail' application.guideline_version.version %}" class="text-indigo-600 hover:underline">{{ application.guideline_version }}</a>{% else %}-{% endif %}</dd>
                 </div>
             </dl>
