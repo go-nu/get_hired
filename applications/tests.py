@@ -1,6 +1,8 @@
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db.models import ProtectedError
 from django.test import TestCase
+from django.urls import reverse
 
 from .models import Analysis, Application, Company, Result, Stage
 from .services import save_manual_analysis
@@ -93,6 +95,37 @@ class ApplicationTests(TestCase):
     def test_fit_grade_has_five_levels(self):
         self.assertEqual(
             Application.FitGrade.labels, ["상", "중상", "중", "중하", "하"]
+        )
+
+
+class DashboardSortTests(TestCase):
+    def setUp(self):
+        self.client.force_login(get_user_model().objects.create_user("tester"))
+        for name, stage in (
+            ("나기업", Stage.INTERVIEW),
+            ("가기업", Stage.APPLIED),
+            ("다기업", Stage.INTEREST),
+        ):
+            Application.objects.create(
+                company=Company.objects.create(name=name), position="백엔드", stage=stage
+            )
+
+    def company_names(self, query):
+        response = self.client.get(reverse("home"), query)
+        return [application.company.name for application in response.context["applications"]]
+
+    def test_sort_by_company_name(self):
+        self.assertEqual(self.company_names({"sort": "company"}), ["가기업", "나기업", "다기업"])
+        self.assertEqual(
+            self.company_names({"sort": "company", "dir": "desc"}),
+            ["다기업", "나기업", "가기업"],
+        )
+
+    def test_sort_by_stage_follows_stage_order(self):
+        self.assertEqual(self.company_names({"sort": "stage"}), ["다기업", "가기업", "나기업"])
+        self.assertEqual(
+            self.company_names({"sort": "stage", "dir": "desc"}),
+            ["나기업", "가기업", "다기업"],
         )
 
 

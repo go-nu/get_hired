@@ -59,13 +59,13 @@
         <thead class="border-b border-gray-200 bg-gray-50 text-xs text-gray-500">
             <tr>
                 <th class="px-4 py-2 font-medium">{% include "applications/_sort_header.html" with header=sort_headers.index %}</th>
-                <th class="px-4 py-2 font-medium">기업명</th>
+                <th class="px-4 py-2 font-medium">{% include "applications/_sort_header.html" with header=sort_headers.company %}</th>
                 <th class="px-4 py-2 font-medium">직무</th>
                 <th class="px-4 py-2 font-medium">적합도</th>
                 <th class="px-4 py-2 font-medium">지원 경로</th>
                 <th class="px-4 py-2 font-medium">{% include "applications/_sort_header.html" with header=sort_headers.deadline %}</th>
                 <th class="px-4 py-2 font-medium">지원일</th>
-                <th class="px-4 py-2 font-medium">단계</th>
+                <th class="px-4 py-2 font-medium">{% include "applications/_sort_header.html" with header=sort_headers.stage %}</th>
                 <th class="px-4 py-2 font-medium">{% include "applications/_sort_header.html" with header=sort_headers.result %}</th>
             </tr>
         </thead>

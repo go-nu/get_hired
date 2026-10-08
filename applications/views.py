@@ -49,19 +49,30 @@ from .services import (
 # 대시보드 정렬: 키 → (열 제목, 처음 눌렀을 때의 방향)
 SORTS = {
     "index": ("번호", "asc"),
+    "company": ("기업명", "asc"),
     "deadline": ("마감일", "desc"),
+    "stage": ("단계", "asc"),
     "result": ("결과", "asc"),
 }
 DEFAULT_SORT = "deadline"
+# 선택지에 정의된 순서로 정렬하는 열: 키 → (필드, 선택지 값)
+CHOICE_SORTS = {
+    "stage": ("stage", Stage.values),
+    "result": ("result", Result.values),
+}
 
 
 def sort_ordering(sort, direction):
     descending = direction == "desc"
     if sort == "index":  # 번호는 등록 순서
         return ["-created_at", "-id"] if descending else ["created_at", "id"]
-    if sort == "result":  # Result 선택지에 정의된 순서
+    if sort == "company":
+        name = F("company__name")
+        return [name.desc() if descending else name.asc(), "-created_at"]
+    if sort in CHOICE_SORTS:  # Stage, Result 선택지에 정의된 순서
+        field, values = CHOICE_SORTS[sort]
         rank = Case(
-            *[When(result=value, then=position) for position, value in enumerate(Result.values)],
+            *[When(**{field: value}, then=position) for position, value in enumerate(values)],
             output_field=IntegerField(),
         )
         return [rank.desc() if descending else rank.asc(), "-created_at"]
