@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}선택지 관리 · 취업 활동 관리{% endblock %}
+
+{% block banner %}{% endblock %}
+
+{% block content %}
+{% include "_admin_tabs.html" with tab="choices" %}
+<div class="mb-4 flex flex-wrap items-baseline gap-3">
+    <h1 class="text-xl font-semibold">관리자</h1>
+    <span class="text-sm text-gray-500">지원 건 등록 폼의 선택지 · 위에서부터 폼·필터·정렬 순서</span>
+</div>
+
+<div class="grid gap-4 lg:grid-cols-3">
+    {% for group in groups %}
+    <section class="self-start rounded-lg border border-gray-200 bg-white">
+        <div class="flex items-center border-b border-gray-200 px-4 py-2">
+            <h2 class="text-sm font-semibold">{{ group.kind.label }}</h2>
+            <a href="{% url 'applications:choice_create' group.kind.value %}" class="ml-auto rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-700">추가</a>
+        </div>
+        <ul class="divide-y divide-gray-100 text-sm">
+            {% for choice in group.choices %}
+            <li class="flex items-center gap-2 px-4 py-2">
+                <div class="flex flex-col text-xs leading-none text-gray-400">
+                    <form method="post" action="{% url 'applications:choice_move' choice.pk 'up' %}">
+                        {% csrf_token %}
+                        <button type="submit" class="hover:text-indigo-600 disabled:invisible" aria-label="{{ choice.label }} 위로" {% if forloop.first %}disabled{% endif %}>▲</button>
+                    </form>
+                    <form method="post" action="{% url 'applications:choice_move' choice.pk 'down' %}">
+                        {% csrf_token %}
+                        <button type="submit" class="hover:text-indigo-600 disabled:invisible" aria-label="{{ choice.label }} 아래로" {% if forloop.last %}disabled{% endif %}>▼</button>
+                    </form>
+                </div>
+                <div class="min-w-0 flex-1">
+                    <p class="truncate font-medium {% if choice.is_hidden %}text-gray-400{% endif %}">{{ choice.label }}</p>
+                    <p class="flex flex-wrap gap-1 text-xs text-gray-500">
+                        <span>지원 건 {{ choice.used }}건</span>
+                        {% if choice.is_system %}<span class="rounded-full bg-indigo-50 px-1.5 text-indigo-700">시스템</span>{% endif %}
+                        {% if choice.is_hidden %}<span class="rounded-full bg-gray-100 px-1.5 text-gray-600">숨김</span>{% endif %}
+                        {% if choice.is_open %}<span class="rounded-full bg-blue-50 px-1.5 text-blue-700">끝나지 않음</span>{% endif %}
+                        {% if choice.is_no_response %}<span class="rounded-full bg-amber-50 px-1.5 text-amber-700">미응답 대상</span>{% endif %}
+                    </p>
+                </div>
+                <a href="{% url 'applications:choice_update' choice.pk %}" class="shrink-0 text-gray-600 hover:text-indigo-600">수정</a>
+                {% if choice.delete_blocker %}
+                <span class="shrink-0 cursor-not-allowed text-gray-300" title="{{ choice.delete_blocker }}">삭제</span>
+                {% else %}
+                <form method="post" action="{% url 'applications:choice_delete' choice.pk %}" class="shrink-0" data-confirm="{{ group.kind.label }} “{{ choice.label }}”을(를) 삭제할까요?">
+                    {% csrf_token %}
+                    <button type="submit" class="text-red-600 hover:text-red-800">삭제</button>
+                </form>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endfor %}
+</div>
+
+<p class="mt-4 text-xs text-gray-500">지원 건이 쓰고 있는 선택지는 삭제할 수 없습니다. [수정]에서 숨기면 등록·수정 폼에서만 빠지고 기존 지원 건과 필터에는 남습니다. “시스템” 선택지(관심, 미열람, 불합격)는 기본값과 미응답 처리에 쓰여 이름만 바꿀 수 있습니다.</p>
+{% endblock %}
