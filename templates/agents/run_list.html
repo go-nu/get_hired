@@ -6,6 +6,7 @@
 {% block banner %}{% endblock %}
 
 {% block content %}
+{% include "_admin_tabs.html" with tab="runs" %}
 <div class="mb-4 flex flex-wrap items-center gap-3">
     <h1 class="text-xl font-semibold">관리자</h1>
     <span class="text-sm text-gray-500">에이전트 실행 기록{% if failed_count %} · 실패 {{ failed_count }}건{% endif %}</span>

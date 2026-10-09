@@ -7,6 +7,8 @@ from django.db.models import Q
 from django.utils import timezone
 
 
+# 단계·결과·지원 경로의 실제 선택지는 Choice 표에 있고 관리자 페이지에서 고친다.
+# 아래 Stage, Result는 처음 넣은 기본값이자, 코드가 뜻을 알고 쓰는 값의 이름이다.
 class Stage(models.TextChoices):
     INTEREST = "interest", "관심"
     APPLIED = "applied", "지원 완료"
@@ -25,10 +27,148 @@ class Result(models.TextChoices):
     WITHDRAWN = "withdrawn", "포기"
 
 
-# 아직 끝나지 않은(합격·불합격·포기가 아닌) 결과
-OPEN_RESULTS = (Result.UNREAD, Result.READ, Result.IN_PROGRESS)
-# 회사 쪽 반응이 아직 없는 결과 ("응답 없음" 판정 대상)
-NO_RESPONSE_RESULTS = (Result.UNREAD, Result.READ)
+class ChoiceKind(models.TextChoices):
+    SOURCE = "source", "지원 경로"
+    STAGE = "stage", "진행 단계"
+    RESULT = "result", "결과"
+
+
+_choice_cache = {}
+
+
+def clear_choice_cache():
+    _choice_cache.clear()
+
+
+class Choice(models.Model):
+    """지원 건의 단계·결과·지원 경로 선택지 하나. 지원 건에는 value를 저장한다."""
+
+    kind = models.CharField("종류", max_length=10, choices=ChoiceKind.choices)
+    # 지원 건에 저장되는 값. 새로 만들 때 자동으로 정하고 그 뒤로는 바꾸지 않는다.
+    value = models.CharField("값", max_length=20, blank=True, editable=False)
+    label = models.CharField("이름", max_length=30)
+    order = models.PositiveIntegerField("순서", default=0, editable=False)
+    is_hidden = models.BooleanField(
+        "숨김",
+        default=False,
+        help_text="등록·수정 폼의 선택지에서 뺍니다. 이미 쓰고 있는 지원 건과 필터에는 남습니다.",
+    )
+    # 코드가 뜻을 알고 쓰는 값: 지울 수도 숨길 수도 없고 이름만 바꿀 수 있다.
+    # 관심(아직 지원하지 않은 단계, 등록 기본값), 미열람(결과 기본값), 불합격(미응답 처리가 바꾸는 값).
+    is_system = models.BooleanField("시스템 값", default=False, editable=False)
+    # 결과 선택지에만 쓰는 속성
+    is_open = models.BooleanField(
+        "아직 끝나지 않은 결과",
+        default=False,
+        help_text="대시보드의 진행 중 건수와 마감 임박 알림에서 끝나지 않은 건으로 셉니다.",
+    )
+    is_no_response = models.BooleanField(
+        "미응답 처리 대상",
+        default=False,
+        help_text="회사 쪽 반응이 아직 없는 결과입니다. 미응답 처리 모달에 나옵니다.",
+    )
+
+    class Meta:
+        verbose_name = "선택지"
+        verbose_name_plural = "선택지"
+        ordering = ["kind", "order", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["kind", "value"], name="unique_choice_value"),
+            models.UniqueConstraint(fields=["kind", "label"], name="unique_choice_label"),
+        ]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} · {self.label}"
+
+    @classmethod
+    def of_kind(cls, kind):
+        """한 종류의 선택지 전체(순서대로). 화면마다 여러 번 읽으므로 바뀔 때까지 기억해 둔다."""
+        if kind not in _choice_cache:
+            _choice_cache[kind] = list(cls.objects.filter(kind=kind))
+        return _choice_cache[kind]
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not self.order:
+            last = Choice.objects.filter(kind=self.kind).aggregate(models.Max("order"))
+            self.order = (last["order__max"] or 0) + 1
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if not self.value:
+                self.value = f"c{self.pk}"
+                super().save(update_fields=["value"])
+        clear_choice_cache()
+
+    def delete(self, *args, **kwargs):
+        reason = self.delete_blocker
+        if reason:
+            raise ValidationError(reason)
+        result = super().delete(*args, **kwargs)
+        clear_choice_cache()
+        return result
+
+    @property
+    def usage_count(self):
+        """이 선택지를 지금 쓰고 있는 지원 건 수 (삭제된 기업의 건 포함)."""
+        return Application.objects.filter(**{self.kind: self.value}).count()
+
+    @property
+    def is_last_visible(self):
+        """같은 종류에서 폼에 나오는 선택지가 이것 하나뿐인가."""
+        others = Choice.objects.filter(kind=self.kind, is_hidden=False).exclude(pk=self.pk)
+        return not self.is_hidden and not others.exists()
+
+    @property
+    def delete_blocker(self):
+        """삭제할 수 없는 이유. 삭제할 수 있으면 빈 문자열."""
+        if self.is_system:
+            return "시스템이 쓰는 값이라 삭제할 수 없습니다. 이름은 바꿀 수 있습니다."
+        count = self.usage_count
+        if count:
+            return f"지원 건 {count}건이 쓰고 있어 삭제할 수 없습니다. 대신 숨길 수 있습니다."
+        if self.kind == ChoiceKind.STAGE and (
+            StageHistory.objects.filter(
+                Q(from_stage=self.value) | Q(to_stage=self.value)
+            ).exists()
+        ):
+            return "단계 변경 이력에 남아 있어 삭제할 수 없습니다. 대신 숨길 수 있습니다."
+        if self.is_last_visible:
+            return "폼에서 고를 수 있는 마지막 선택지라 삭제할 수 없습니다."
+        return ""
+
+
+def choice_options(kind, include=""):
+    """폼에 넣을 (값, 이름) 목록. 숨긴 선택지는 빼되 include(지금 저장된 값)는 남긴다."""
+    return [
+        (choice.value, choice.label)
+        for choice in Choice.of_kind(kind)
+        if not choice.is_hidden or choice.value == include
+    ]
+
+
+def choice_values(kind):
+    return [choice.value for choice in Choice.of_kind(kind)]
+
+
+def choice_label(kind, value):
+    """값의 이름. 선택지에 없는 값이면 값 그대로."""
+    return next(
+        (choice.label for choice in Choice.of_kind(kind) if choice.value == value), value
+    )
+
+
+def default_source():
+    options = choice_options(ChoiceKind.SOURCE)
+    return options[0][0] if options else ""
+
+
+def open_results():
+    """아직 끝나지 않은(합격·불합격·포기가 아닌) 결과 값."""
+    return [c.value for c in Choice.of_kind(ChoiceKind.RESULT) if c.is_open]
+
+
+def no_response_results():
+    """회사 쪽 반응이 아직 없는 결과 값 ("응답 없음" 판정 대상)."""
+    return [c.value for c in Choice.of_kind(ChoiceKind.RESULT) if c.is_no_response]
 
 
 # 마감이 이 일수 이내이고 아직 지원하지 않았으면 강조 표시한다.
@@ -104,7 +244,7 @@ class ApplicationQuerySet(models.QuerySet):
         return (
             self.visible()
             .exclude(stage=Stage.INTEREST)
-            .filter(result__in=NO_RESPONSE_RESULTS)
+            .filter(result__in=no_response_results())
             .filter(
                 Q(deadline__lte=cutoff)
                 | Q(deadline__isnull=True, applied_at__lte=cutoff)
@@ -113,15 +253,6 @@ class ApplicationQuerySet(models.QuerySet):
 
 
 class Application(models.Model):
-    class Source(models.TextChoices):
-        SARAMIN = "saramin", "사람인"
-        JOBKOREA = "jobkorea", "잡코리아"
-        WANTED = "wanted", "원티드"
-        JOBPLANET = "jobplanet", "잡플래닛"
-        LINKEDIN = "linkedin", "링크드인"
-        HOMEPAGE = "homepage", "회사 홈페이지"
-        OTHER = "other", "기타"
-
     class FitGrade(models.TextChoices):
         HIGH = "high", "상"
         MID_HIGH = "mid_high", "중상"
@@ -137,9 +268,8 @@ class Application(models.Model):
     )
     position = models.CharField("직무명", max_length=200)
     posting_url = models.URLField("공고 URL", max_length=500, blank=True)
-    source = models.CharField(
-        "지원 경로", max_length=20, choices=Source.choices, default=Source.SARAMIN
-    )
+    # source, stage, result에는 Choice.value를 저장한다. 선택지는 폼에서 채운다.
+    source = models.CharField("지원 경로", max_length=20, default=default_source)
 
     # 공고 정보
     main_tasks = models.TextField("주요 업무", blank=True)
@@ -150,12 +280,8 @@ class Application(models.Model):
 
     deadline = models.DateField("마감일", null=True, blank=True)
     applied_at = models.DateField("지원 완료일", null=True, blank=True)
-    stage = models.CharField(
-        "진행 단계", max_length=20, choices=Stage.choices, default=Stage.INTEREST
-    )
-    result = models.CharField(
-        "결과", max_length=20, choices=Result.choices, default=Result.UNREAD
-    )
+    stage = models.CharField("진행 단계", max_length=20, default=Stage.INTEREST)
+    result = models.CharField("결과", max_length=20, default=Result.UNREAD)
 
     fit_score = models.PositiveSmallIntegerField(
         "적합도 점수",
@@ -209,6 +335,15 @@ class Application(models.Model):
                     application=self, from_stage=previous or "", to_stage=self.stage
                 )
 
+    def get_source_display(self):
+        return choice_label(ChoiceKind.SOURCE, self.source)
+
+    def get_stage_display(self):
+        return choice_label(ChoiceKind.STAGE, self.stage)
+
+    def get_result_display(self):
+        return choice_label(ChoiceKind.RESULT, self.result)
+
     @property
     def latest_analysis(self):
         return self.analyses.first()
@@ -257,7 +392,7 @@ class Application(models.Model):
             days is not None
             and 0 <= days <= URGENT_DAYS
             and not self.is_applied
-            and self.result in OPEN_RESULTS
+            and self.result in open_results()
         )
 
 
@@ -299,16 +434,20 @@ class StageHistory(models.Model):
         on_delete=models.CASCADE,
         related_name="stage_history",
     )
-    from_stage = models.CharField(
-        "이전 단계", max_length=20, choices=Stage.choices, blank=True
-    )
-    to_stage = models.CharField("변경 단계", max_length=20, choices=Stage.choices)
+    from_stage = models.CharField("이전 단계", max_length=20, blank=True)
+    to_stage = models.CharField("변경 단계", max_length=20)
     changed_at = models.DateTimeField("변경일시", auto_now_add=True)
 
     class Meta:
         verbose_name = "단계 변경 이력"
         verbose_name_plural = "단계 변경 이력"
         ordering = ["-changed_at", "-id"]
+
+    def get_from_stage_display(self):
+        return choice_label(ChoiceKind.STAGE, self.from_stage)
+
+    def get_to_stage_display(self):
+        return choice_label(ChoiceKind.STAGE, self.to_stage)
 
     def __str__(self):
         before = self.get_from_stage_display() or "등록"

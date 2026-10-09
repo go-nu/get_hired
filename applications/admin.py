@@ -1,7 +1,7 @@
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 
-from .models import Analysis, Application, Company, StageHistory
+from .models import Analysis, Application, Choice, Company, StageHistory
 
 
 @admin.register(Company)
@@ -93,3 +93,17 @@ class AnalysisAdmin(admin.ModelAdmin):
     list_filter = ("source",)
     search_fields = ("application__company__name", "application__position")
     readonly_fields = ("created_at",)
+
+
+@admin.register(Choice)
+class ChoiceAdmin(admin.ModelAdmin):
+    list_display = ("kind", "label", "value", "order", "is_hidden", "is_system")
+    list_filter = ("kind", "is_hidden")
+    readonly_fields = ("kind", "value", "order", "is_system")
+
+    def has_add_permission(self, request):
+        # 추가·삭제·순서 변경은 관리자 페이지의 선택지 관리에서 한다. (사용 중 삭제 방지)
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

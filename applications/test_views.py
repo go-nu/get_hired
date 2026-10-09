@@ -7,7 +7,16 @@ from django.utils import timezone
 
 from profiles.models import GuidelineVersion
 
-from .models import Application, Company, Result, Stage
+from .forms import ApplicationForm
+from .models import (
+    Application,
+    Choice,
+    ChoiceKind,
+    Company,
+    Result,
+    Stage,
+    clear_choice_cache,
+)
 from .views import this_week_range
 
 
@@ -499,3 +508,122 @@ class CompanyViewTests(LoggedInTestCase):
         )
         company.refresh_from_db()
         self.assertEqual((company.industry, company.size), ("핀테크", "startup"))
+
+
+class ChoiceManagementTests(LoggedInTestCase):
+    def setUp(self):
+        super().setUp()
+        # 테스트가 끝나면 DB는 되돌아가므로 기억해 둔 선택지도 비운다.
+        self.addCleanup(clear_choice_cache)
+
+    def choice(self, kind, value):
+        return Choice.objects.get(kind=kind, value=value)
+
+    def form_values(self, name, instance=None):
+        return [value for value, _ in ApplicationForm(instance=instance).fields[name].choices]
+
+    def test_login_required(self):
+        self.client.logout()
+        url = reverse("applications:choice_list")
+        self.assertRedirects(self.client.get(url), f"{reverse('login')}?next={url}")
+
+    def test_list_shows_every_kind_with_usage(self):
+        self.make_application(source="wanted")
+        response = self.client.get(reverse("applications:choice_list"))
+        for kind in ChoiceKind:
+            self.assertContains(response, kind.label)
+        used = {
+            choice.value: choice.used
+            for group in response.context["groups"]
+            for choice in group["choices"]
+            if group["kind"] == ChoiceKind.SOURCE
+        }
+        self.assertEqual((used["wanted"], used["saramin"]), (1, 0))
+
+    def test_create_adds_choice_to_form_and_filter(self):
+        url = reverse("applications:choice_create", args=[ChoiceKind.SOURCE])
+        self.assertRedirects(
+            self.client.post(url, {"label": "점핏"}), reverse("applications:choice_list")
+        )
+        created = Choice.objects.get(label="점핏")
+        self.assertEqual((created.kind, created.value), (ChoiceKind.SOURCE, f"c{created.pk}"))
+        self.assertEqual(self.form_values("source")[-1], created.value)  # 맨 뒤에 붙는다
+
+        application = self.make_application(source=created.value)
+        self.assertEqual(application.get_source_display(), "점핏")
+        response = self.client.get(reverse("home"), {"source": created.value})
+        self.assertEqual(list(response.context["applications"]), [application])
+
+    def test_create_rejects_duplicate_label_and_unknown_kind(self):
+        url = reverse("applications:choice_create", args=[ChoiceKind.SOURCE])
+        response = self.client.post(url, {"label": "원티드"})
+        self.assertFormError(response.context["form"], "label", "같은 이름의 선택지가 이미 있습니다.")
+        unknown = reverse("applications:choice_create", args=["nothing"])
+        self.assertEqual(self.client.get(unknown).status_code, 404)
+
+    def test_rename_changes_label_everywhere(self):
+        application = self.make_application(stage=Stage.APPLIED)
+        applied = self.choice(ChoiceKind.STAGE, Stage.APPLIED)
+        self.client.post(
+            reverse("applications:choice_update", args=[applied.pk]), {"label": "서류 제출"}
+        )
+        self.assertEqual(application.get_stage_display(), "서류 제출")
+        self.assertContains(self.client.get(reverse("home")), "서류 제출")
+        self.assertEqual(str(application.stage_history.first()), "등록 → 서류 제출")
+
+    def test_choice_in_use_cannot_be_deleted_but_can_be_hidden(self):
+        application = self.make_application(source="wanted")
+        wanted = self.choice(ChoiceKind.SOURCE, "wanted")
+        self.client.post(reverse("applications:choice_delete", args=[wanted.pk]))
+        self.assertTrue(Choice.objects.filter(pk=wanted.pk).exists())
+
+        self.client.post(
+            reverse("applications:choice_update", args=[wanted.pk]),
+            {"label": "원티드", "is_hidden": "on"},
+        )
+        self.assertNotIn("wanted", self.form_values("source"))
+        self.assertIn("wanted", self.form_values("source", instance=application))  # 쓰던 건은 유지
+        response = self.client.get(reverse("home"), {"source": "wanted"})
+        self.assertEqual(list(response.context["applications"]), [application])
+
+    def test_unused_choice_is_deleted(self):
+        linkedin = self.choice(ChoiceKind.SOURCE, "linkedin")
+        self.client.post(reverse("applications:choice_delete", args=[linkedin.pk]))
+        self.assertFalse(Choice.objects.filter(pk=linkedin.pk).exists())
+        self.assertNotIn("linkedin", self.form_values("source"))
+
+    def test_system_choice_can_only_be_renamed(self):
+        interest = self.choice(ChoiceKind.STAGE, Stage.INTEREST)
+        self.client.post(reverse("applications:choice_delete", args=[interest.pk]))
+        self.client.post(
+            reverse("applications:choice_update", args=[interest.pk]),
+            {"label": "관심 공고", "is_hidden": "on"},
+        )
+        interest.refresh_from_db()
+        self.assertEqual((interest.label, interest.is_hidden), ("관심 공고", False))
+
+    def test_stage_left_in_history_cannot_be_deleted(self):
+        application = self.make_application(stage=Stage.TEST)
+        application.stage = Stage.INTERVIEW
+        application.save()
+        test_stage = self.choice(ChoiceKind.STAGE, Stage.TEST)
+        self.assertIn("단계 변경 이력", test_stage.delete_blocker)
+
+    def test_move_changes_order_used_by_form_and_sort(self):
+        first = self.make_application("가", result=Result.PASSED)
+        second = self.make_application("나", result=Result.FAILED)
+        failed = self.choice(ChoiceKind.RESULT, Result.FAILED)
+        self.client.post(reverse("applications:choice_move", args=[failed.pk, "up"]))
+        values = self.form_values("result")
+        self.assertLess(values.index(Result.FAILED), values.index(Result.PASSED))
+        response = self.client.get(reverse("home"), {"sort": "result", "dir": "asc"})
+        self.assertEqual(list(response.context["applications"]), [second, first])
+
+    def test_new_open_result_counts_as_in_progress(self):
+        url = reverse("applications:choice_create", args=[ChoiceKind.RESULT])
+        self.client.post(url, {"label": "보류", "is_open": "on"})
+        held = Choice.objects.get(label="보류")
+        self.make_application(stage=Stage.APPLIED, result=held.value)
+        self.make_application("다른기업", stage=Stage.APPLIED, result=Result.PASSED)
+        stats = self.client.get(reverse("home")).context["stats"]
+        self.assertEqual(stats["in_progress"], 1)

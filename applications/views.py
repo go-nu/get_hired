@@ -5,7 +5,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.core.exceptions import ValidationError
 from django.db.models import Case, Count, Exists, F, IntegerField, OuterRef, Q, When
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -15,6 +15,7 @@ from django.views.generic import (
     DetailView,
     FormView,
     ListView,
+    TemplateView,
     UpdateView,
 )
 
@@ -25,17 +26,21 @@ from .forms import (
     AnalysisForm,
     AnalysisRunForm,
     ApplicationForm,
+    ChoiceForm,
     CompanyForm,
     DashboardFilterForm,
     StageForm,
 )
 from .models import (
     NO_RESPONSE_DAY_OPTIONS,
-    OPEN_RESULTS,
     Application,
+    Choice,
+    ChoiceKind,
     Company,
     Result,
     Stage,
+    choice_values,
+    open_results,
 )
 from .analysis_graph import ACCEPT, REVISE
 from .services import (
@@ -56,10 +61,10 @@ SORTS = {
     "result": ("결과", "asc"),
 }
 DEFAULT_SORT = "deadline"
-# 선택지에 정의된 순서로 정렬하는 열: 키 → (필드, 선택지 값)
+# 선택지에 정의된 순서로 정렬하는 열: 키 → (필드, 선택지 종류)
 CHOICE_SORTS = {
-    "stage": ("stage", Stage.values),
-    "result": ("result", Result.values),
+    "stage": ("stage", ChoiceKind.STAGE),
+    "result": ("result", ChoiceKind.RESULT),
 }
 
 
@@ -70,10 +75,13 @@ def sort_ordering(sort, direction):
     if sort == "company":
         name = F("company__name")
         return [name.desc() if descending else name.asc(), "-created_at"]
-    if sort in CHOICE_SORTS:  # Stage, Result 선택지에 정의된 순서
-        field, values = CHOICE_SORTS[sort]
+    if sort in CHOICE_SORTS:  # 단계, 결과 선택지에 정의된 순서
+        field, kind = CHOICE_SORTS[sort]
         rank = Case(
-            *[When(**{field: value}, then=position) for position, value in enumerate(values)],
+            *[
+                When(**{field: value}, then=position)
+                for position, value in enumerate(choice_values(kind))
+            ],
             output_field=IntegerField(),
         )
         return [rank.desc() if descending else rank.asc(), "-created_at"]
@@ -108,14 +116,19 @@ def dashboard_stats():
     )
     return {
         "total_applied": applied.count(),
-        "in_progress": applied.filter(result__in=OPEN_RESULTS).count(),
+        "in_progress": applied.filter(result__in=open_results()).count(),
         # 이번 주(월~일)에 마감인데 아직 지원하지 않은 건
         "due_this_week": visible.filter(
             stage=Stage.INTEREST,
-            result__in=OPEN_RESULTS,
+            result__in=open_results(),
             deadline__range=(monday, sunday),
         ).count(),
-        "stages": [(label, by_stage.get(value, 0)) for value, label in Stage.choices],
+        # 숨긴 단계는 지원 건이 남아 있을 때만 보여 준다.
+        "stages": [
+            (choice.label, by_stage.get(choice.value, 0))
+            for choice in Choice.of_kind(ChoiceKind.STAGE)
+            if not choice.is_hidden or by_stage.get(choice.value)
+        ],
         # 에이전트가 사람의 답을 기다리는 건
         "waiting": visible.filter(agent_jobs__status=Status.WAITING).distinct().count(),
     }
@@ -507,3 +520,76 @@ class CompanyRestoreView(LoginRequiredMixin, View):
         company.restore()
         messages.success(request, f"{company} 을(를) 복원했습니다.")
         return redirect("applications:company_deleted_list")
+
+
+class ChoiceListView(LoginRequiredMixin, TemplateView):
+    """관리자 페이지의 선택지 관리: 지원 경로·진행 단계·결과를 종류별로 보여 준다."""
+
+    template_name = "applications/choice_list.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        groups = []
+        for kind in ChoiceKind:
+            usage = dict(
+                Application.objects.order_by().values_list(kind.value).annotate(Count("id"))
+            )
+            choices = list(Choice.objects.filter(kind=kind))
+            for choice in choices:
+                choice.used = usage.get(choice.value, 0)
+            groups.append({"kind": kind, "choices": choices})
+        context["groups"] = groups
+        return context
+
+
+class ChoiceFormMixin(LoginRequiredMixin, SuccessMessageMixin):
+    model = Choice
+    form_class = ChoiceForm
+    template_name = "applications/choice_form.html"
+    success_url = reverse_lazy("applications:choice_list")
+
+
+class ChoiceCreateView(ChoiceFormMixin, CreateView):
+    success_message = "선택지 “%(label)s”을(를) 추가했습니다."
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kind = self.kwargs["kind"]
+        if kind not in ChoiceKind.values:
+            raise Http404
+        kwargs["instance"] = Choice(kind=kind)
+        return kwargs
+
+
+class ChoiceUpdateView(ChoiceFormMixin, UpdateView):
+    success_message = "선택지 “%(label)s”을(를) 수정했습니다."
+
+
+class ChoiceDeleteView(LoginRequiredMixin, View):
+    def post(self, request, pk):
+        choice = get_object_or_404(Choice, pk=pk)
+        try:
+            choice.delete()
+        except ValidationError as error:
+            messages.error(request, error.message)
+        else:
+            messages.success(request, f"선택지 “{choice.label}”을(를) 삭제했습니다.")
+        return redirect("applications:choice_list")
+
+
+class ChoiceMoveView(LoginRequiredMixin, View):
+    """선택지 순서를 한 칸 올리거나 내린다. 이 순서가 폼·필터·대시보드 정렬의 순서다."""
+
+    def post(self, request, pk, direction):
+        choice = get_object_or_404(Choice, pk=pk)
+        siblings = list(Choice.objects.filter(kind=choice.kind))
+        index = siblings.index(choice)
+        target = index - 1 if direction == "up" else index + 1
+        if 0 <= target < len(siblings):
+            siblings[index], siblings[target] = siblings[target], siblings[index]
+            # 순서 값이 겹쳐 있어도 맞도록 전체를 다시 매긴다.
+            for order, sibling in enumerate(siblings, start=1):
+                if sibling.order != order:
+                    sibling.order = order
+                    sibling.save(update_fields=["order"])
+        return redirect("applications:choice_list")

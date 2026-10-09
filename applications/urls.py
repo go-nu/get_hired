@@ -52,4 +52,21 @@ urlpatterns = [
         views.CompanyRestoreView.as_view(),
         name="company_restore",
     ),
+    path("choices/", views.ChoiceListView.as_view(), name="choice_list"),
+    path(
+        "choices/new/<str:kind>/",
+        views.ChoiceCreateView.as_view(),
+        name="choice_create",
+    ),
+    path("choices/<int:pk>/edit/", views.ChoiceUpdateView.as_view(), name="choice_update"),
+    path(
+        "choices/<int:pk>/delete/",
+        views.ChoiceDeleteView.as_view(),
+        name="choice_delete",
+    ),
+    path(
+        "choices/<int:pk>/move/<str:direction>/",
+        views.ChoiceMoveView.as_view(),
+        name="choice_move",
+    ),
 ]
