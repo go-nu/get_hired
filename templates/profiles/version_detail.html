@@ -27,12 +27,9 @@
 
     <div class="ml-auto flex items-center gap-2 text-sm">
         {# 활성 버전에서는 위쪽 [새로 작성]이 같은 일을 하므로 버튼을 따로 두지 않는다. #}
+        {# 활성 버전 지정은 버전 목록에서만 한다. #}
         {% if not version.is_active %}
         <a href="{% url 'profiles:create' %}?base={{ version.version }}" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 hover:bg-gray-50">이 내용으로 새로 작성</a>
-        <form method="post" action="{% url 'profiles:activate' version.version %}" data-confirm="{{ version }} 을(를) 활성 버전으로 지정할까요?">
-            {% csrf_token %}
-            <button type="submit" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 hover:bg-gray-50">활성 버전으로 지정</button>
-        </form>
         {% endif %}
     </div>
 </div>

@@ -230,3 +230,12 @@ class ProfileViewTests(TestCase):
         version = GuidelineVersion.objects.create(profile="프로필 본문")
         response = self.client.get(reverse("profiles:detail", args=[version.version]))
         self.assertContains(response, "프로필 본문")
+
+    def test_activation_is_offered_only_on_the_list(self):
+        GuidelineVersion.objects.create(is_active=True)
+        old = GuidelineVersion.objects.create()
+        url = reverse("profiles:activate", args=[old.version])
+        self.assertContains(self.client.get(reverse("profiles:list")), f'data-url="{url}"')
+        detail = self.client.get(reverse("profiles:detail", args=[old.version]))
+        self.assertNotContains(detail, url)
+        self.assertContains(detail, "이 내용으로 새로 작성")
